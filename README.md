@@ -5,7 +5,7 @@ Expose **indexed views** in [Materialize](https://materialize.com) as fully‑ty
 What that means in practice is:
 
 * If you can write a SQL view and `CREATE INDEX` on it, you already have a gRPC‑like interface.
-* The server introspects Materialize’s catalog, discovers every view you are authorised to query, and surfaces each one as a MCP tool.
+* The server introspects Materialize’s catalog, discovers every view you are authorised to query, and surfaces each one as an MCP tool.
 * LLMs or agents call tools instead of generating ad‑hoc SQL—giving you **stable, versionable, testable contracts** between your data and your application.
 
 ---
@@ -14,11 +14,11 @@ What that means in practice is:
 
 Many database MCP servers ship a single `execute_sql` tool. It is great for prototyping but brittle in production: you cannot guarantee performance, cost, or even correctness once the model starts re‑phrasing questions.
 
-By shifting to **operational data products**—indexed views that encode your business logic—we move variability to design‑time, not run‑time. Each tool is:
+By shifting to **operational data products** - indexed views that encode your business logic - we move variability to design‑time, not run‑time. Each tool is:
 
-* **Typed**– input and output schemas are derived from the index.
-* **Observable**– usage is logged per‑tool, making cost and performance explicit.
-* **Secure**– if you don’t create a view/index, it isn’t callable.
+* **Typed:** input and output schemas are derived from the index.
+* **Observable:** usage is logged per‑tool, making cost and performance explicit.
+* **Secure:** if you don’t create a view/index, it isn’t callable.
 
 ## Quick‑start
 

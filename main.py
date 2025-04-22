@@ -157,9 +157,6 @@ def get_lifespan(settings):
     return lifespan
 
 
-# —————————————————————————————————————————————————————————
-# Subclass FastMCP
-# —————————————————————————————————————————————————————————
 class MaterializeMCP(FastMCP):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
