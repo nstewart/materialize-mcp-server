@@ -1,21 +1,18 @@
 # Materialize MCP Server
 
-Expose **indexed views** in [Materialize](https://materialize.com) as fully‑typed, callable **tools** over the [Model Context Protocol(MCP)](https://github.com/modelcontext/protocol).
+Instantly transform your Materialize indexed views into fully-typed, callable tools via the Model Context Protocol (MCP).
 
-What that means in practice is:
-
-* If you can write a SQL view and `CREATE INDEX` on it, you already have a gRPC‑like interface.
-* The server introspects Materialize’s catalog, discovers every view you are authorised to query, and surfaces each one as an MCP tool.
-* LLMs or agents call tools instead of generating ad‑hoc SQL—giving you **stable, versionable, testable contracts** between your data and your application.
-
----
+Define stable, versioned, and secure data tools simply by creating SQL views and indexing them—no additional code required.
 
 ## Why not `execute_sql`?
 
-Many database MCP servers ship a single `execute_sql` tool. It is great for prototyping but brittle in production: you cannot guarantee performance, cost, or even correctness once the model starts re‑phrasing questions.
+Many database MCP servers ship a single `execute_sql` tool.
+It is great for prototyping but brittle in production.
+Generated SQL queries by LLMs and agents can introduce performance bottlenecks, unpredictable costs, and inconsistent results.
 
-By shifting to **operational data products** - indexed views that encode your business logic - we move variability to design‑time, not run‑time. Each tool is:
+By shifting to **operational data products**  we remove variability and ensure that each tool is:
 
+* **Stable:** define once, used repeatedly, ensuring consistent business logic.
 * **Typed:** input and output schemas are derived from the index.
 * **Observable:** usage is logged per‑tool, making cost and performance explicit.
 * **Secure:** if you don’t create a view/index, it isn’t callable.
@@ -30,7 +27,7 @@ uv run main.py
 Running with SSE (for browser clients):
 
 ```bash
-uv run materialize_mcp_server.py --transport sse
+uv run main.py --transport sse
 ```
 
 ## Defining a Tool

@@ -240,6 +240,7 @@ class MaterializeMCP(FastMCP):
                 if not row:
                     return []
 
+                # TODO push projection pushdown into the database
                 columns = [desc.name for desc in cur.description]
                 result = {
                     k: v
