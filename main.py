@@ -49,6 +49,11 @@ logging.basicConfig(
 class Settings:
     dsn: str
     transport: str
+    host: str
+    port: int
+    pool_min_size: int
+    pool_max_size: int
+    log_level: str
 
 
 def load_settings() -> Settings:
@@ -67,8 +72,51 @@ def load_settings() -> Settings:
         ),
         help="Materialize DSN (default: postgresql://materialize@localhost:6875/materialize)",
     )
+
+    parser.add_argument(
+        "--host",
+        default=os.getenv("MCP_HOST", "0.0.0.0"),
+        help="Server host (default: 0.0.0.0)",
+    )
+
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("MCP_PORT", "3001")),
+        help="Server port (default: 3001)",
+    )
+
+    parser.add_argument(
+        "--pool-min-size",
+        type=int,
+        default=int(os.getenv("MCP_POOL_MIN_SIZE", "1")),
+        help="Minimum connection pool size (default: 1)",
+    )
+
+    parser.add_argument(
+        "--pool-max-size",
+        type=int,
+        default=int(os.getenv("MCP_POOL_MAX_SIZE", "10")),
+        help="Maximum connection pool size (default: 10)",
+    )
+
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default=os.getenv("MCP_LOG_LEVEL", "INFO"),
+        help="Logging level (default: INFO)",
+    )
+
     args = parser.parse_args()
-    return Settings(dsn=args.mz_dsn, transport=args.transport)
+    return Settings(
+        dsn=args.mz_dsn,
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        pool_min_size=args.pool_min_size,
+        pool_max_size=args.pool_max_size,
+        log_level=args.log_level,
+    )
 
 
 def get_tool_query(tool: Optional[str] = None) -> Tuple[sql.Composed | sql.SQL, Tuple]:
@@ -147,7 +195,9 @@ def get_lifespan(settings):
         )
 
         async with AsyncConnectionPool(
-            conninfo=settings.dsn, min_size=1, max_size=10
+            conninfo=settings.dsn,
+            min_size=settings.pool_min_size,
+            max_size=settings.pool_max_size,
         ) as pool:
             try:
                 yield AppContext(pool=pool)
@@ -159,7 +209,7 @@ def get_lifespan(settings):
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
-    # TODO verify we support all possible postgres types
+    # TODO support all materialize types
     from datetime import datetime, date, time, timedelta
     from psycopg.types.range import Range
 
@@ -178,12 +228,13 @@ def json_serial(obj):
 class MaterializeMCP(FastMCP):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        logger.setLevel(settings.log_level)
         super().__init__(
             name="Materialize MCP Server",
             lifespan=get_lifespan(settings),
-            host="0.0.0.0",
-            port=3001,
-            log_level="INFO",
+            host=settings.host,
+            port=settings.port,
+            log_level=settings.log_level,
         )
 
     async def list_tools(self) -> List[Tool]:
@@ -276,12 +327,13 @@ async def main():
     settings = load_settings()
     server = MaterializeMCP(settings)
 
-    if settings.transport == "stdio":
-        await server.run_stdio_async()
-    elif settings.transport == "sse":
-        await server.run_sse_async()
-    else:
-        raise ValueError(f"Unknown transport: {settings.transport}")
+    match settings.transport:
+        case "stdio":
+            await server.run_stdio_async()
+        case "sse":
+            await server.run_sse_async()
+        case t:
+            raise ValueError(f"Unknown transport: {t}")
 
 
 if __name__ == "__main__":
