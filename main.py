@@ -167,7 +167,7 @@ def get_tool_query(tool: Optional[str] = None) -> Tuple[sql.Composed | sql.SQL, 
             JOIN mz_columns ccol ON ccol.id = o.id AND ccol.position = ic.on_position
             JOIN mz_clusters c ON c.id = i.cluster_id
             JOIN mz_internal.mz_show_my_cluster_privileges cp ON cp.name = c.name
-            LEFT JOIN mz_internal.mz_comments cts ON cts.id = o.id AND cts.object_sub_id IS NULL
+            JOIN mz_internal.mz_comments cts ON cts.id = o.id AND cts.object_sub_id IS NULL
             WHERE op.privilege_type = 'SELECT'
               AND cp.privilege_type = 'USAGE'
             GROUP BY 1,2,3,4,5,6
@@ -256,9 +256,6 @@ class MaterializeMCP(FastMCP):
                 await cur.execute(query, params)
                 async for row in cur:
                     desc = row.get("description")
-                    if not desc:
-                        logger.warning(f"Tool {row['index_name']} missing description")
-                        continue
                     tools.append(
                         Tool(
                             name=row["index_name"],
