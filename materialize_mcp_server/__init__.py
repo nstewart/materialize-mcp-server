@@ -333,8 +333,13 @@ async def main():
             raise ValueError(f"Unknown transport: {t}")
 
 
-if __name__ == "__main__":
+def run():
+    """Synchronous wrapper for the async main function."""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Shutting down …")
+
+
+if __name__ == "__main__":
+    run()

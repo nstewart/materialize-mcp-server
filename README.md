@@ -4,6 +4,14 @@ Instantly transform your Materialize indexed views into fully-typed, callable to
 
 Define stable, versioned, and secure data tools simply by creating SQL views and indexing them—no additional code required.
 
+## Installation
+
+The package can be installed from PyPI using pip:
+
+```bash
+pip install materialize-mcp-server
+```
+
 ## Why not `execute_sql`?
 
 Many database MCP servers ship a single `execute_sql` tool.
@@ -15,19 +23,32 @@ By shifting to **operational data products**  we remove variability and ensure t
 * **Stable:** define once, used repeatedly, ensuring consistent business logic.
 * **Typed:** input and output schemas are derived from the index.
 * **Observable:** usage is logged per‑tool, making cost and performance explicit.
-* **Secure:** if you don’t create a view/index, it isn’t callable.
+* **Secure:** if you don't create a view/index, it isn't callable.
 
-## Quick‑start
+## Quick Start
+
+Run the server with default settings:
 
 ```bash
-MZ_DSN=postgresql://materialize@localhost:6875/materialize \
-uv run main.py
+materialize-mcp
 ```
 
-Running with SSE (for browser clients):
+Or with custom configuration:
 
 ```bash
-uv run main.py --transport sse
+materialize-mcp --host 127.0.0.1 --port 8080 --pool-min-size 2 --pool-max-size 20 --log-level DEBUG
+```
+
+You can also configure the server using environment variables:
+
+```bash
+export MZ_DSN=postgresql://materialize@localhost:6875/materialize
+export MCP_HOST=127.0.0.1
+export MCP_PORT=8080
+export MCP_POOL_MIN_SIZE=2
+export MCP_POOL_MAX_SIZE=20
+export MCP_LOG_LEVEL=DEBUG
+materialize-mcp
 ```
 
 ## Defining a Tool
@@ -68,3 +89,21 @@ Refresh the server and the tool now appears in `tools/list`:
   }
 }
 ```
+
+## Configuration
+
+The server can be configured using command-line arguments or environment variables:
+
+| Argument | Environment Variable | Default | Description |
+|----------|---------------------|---------|-------------|
+| `--mz-dsn` | `MZ_DSN` | `postgresql://materialize@localhost:6875/materialize` | Materialize DSN |
+| `--transport` | `MCP_TRANSPORT` | `stdio` | Communication transport (`stdio` or `sse`) |
+| `--host` | `MCP_HOST` | `0.0.0.0` | Server host |
+| `--port` | `MCP_PORT` | `3001` | Server port |
+| `--pool-min-size` | `MCP_POOL_MIN_SIZE` | `1` | Minimum connection pool size |
+| `--pool-max-size` | `MCP_POOL_MAX_SIZE` | `10` | Maximum connection pool size |
+| `--log-level` | `MCP_LOG_LEVEL` | `INFO` | Logging level |
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
