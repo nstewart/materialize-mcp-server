@@ -157,6 +157,24 @@ def get_lifespan(settings):
     return lifespan
 
 
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+    # TODO verify we support all possible postgres types
+    from datetime import datetime, date, time, timedelta
+    from psycopg.types.range import Range
+
+    if isinstance(obj, (datetime, date, time)):
+        return obj.isoformat()
+    elif isinstance(obj, timedelta):
+        return obj.total_seconds()
+    elif isinstance(obj, Range):
+        return {"lower": obj.lower, "upper": obj.upper, "bounds": obj.bounds}
+    elif hasattr(obj, "__dict__"):
+        return obj.__dict__
+
+    raise TypeError("Type %s not serializable. This is a bug." % type(obj))
+
+
 class MaterializeMCP(FastMCP):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -247,7 +265,11 @@ class MaterializeMCP(FastMCP):
                     for k, v in dict(zip(columns, row)).items()
                     if k not in arguments
                 }
-                return [TextContent(text=json.dumps(result), type="text")]
+                return [
+                    TextContent(
+                        text=json.dumps(result, default=json_serial), type="text"
+                    )
+                ]
 
 
 async def main():
