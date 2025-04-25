@@ -52,11 +52,15 @@ def get_lifespan(cfg):
     async def lifespan(server) -> AsyncIterator[MzClient]:
         logger.info("Initializing database connection pool for dsn {}".format(cfg.dsn))
 
+        async def configure(conn):
+            await conn.set_autocommit(True)
+
         async with AsyncConnectionPool(
             conninfo=cfg.dsn,
             min_size=cfg.pool_min_size,
             max_size=cfg.pool_max_size,
             kwargs={"application_name": "materialize_mcp_server"},
+            configure=configure,
         ) as pool:
             try:
                 yield MzClient(pool=pool)

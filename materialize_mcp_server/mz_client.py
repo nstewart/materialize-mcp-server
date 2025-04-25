@@ -1,11 +1,14 @@
+import base64
+import decimal
 from typing import Optional, Tuple, List, Dict, Any, Sequence
+from uuid import UUID
 
 from mcp import Tool
 from mcp.types import TextContent, ImageContent, EmbeddedResource
 from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
-import simplejson as json
+import json
 
 
 class MzClient:
@@ -94,18 +97,20 @@ class MzClient:
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
-    # TODO support all materialize types
     from datetime import datetime, date, time, timedelta
-    from psycopg.types.range import Range
 
     if isinstance(obj, (datetime, date, time)):
         return obj.isoformat()
     elif isinstance(obj, timedelta):
         return obj.total_seconds()
-    elif isinstance(obj, Range):
-        return {"lower": obj.lower, "upper": obj.upper, "bounds": obj.bounds}
-    elif hasattr(obj, "__dict__"):
-        return obj.__dict__
+    elif isinstance(obj, bytes):
+        return base64.b64encode(obj).decode("ascii")
+    elif isinstance(obj, decimal.Decimal):
+        return str(obj)
+    elif isinstance(obj, UUID):
+        return str(obj)
+    else:
+        raise TypeError("Type %s not serializable. This is a bug." % type(obj))
 
 
 def get_tool_query(tool: Optional[str] = None) -> Tuple[sql.Composed | sql.SQL, Tuple]:
@@ -134,17 +139,24 @@ def get_tool_query(tool: Optional[str] = None) -> Tuple[sql.Composed | sql.SQL, 
                 cts.comment AS description,
                 jsonb_build_object(
                     'type', 'object',
-                    'required', jsonb_agg(ccol.name),
+                    'required', jsonb_agg(distinct ccol.name),
                     'properties', jsonb_object_agg(
                         ccol.name,
-                        jsonb_build_object(
-                            'type',
-                            CASE
-                                WHEN ccol.name IN ('int', 'bigint', 'float', 'numeric') THEN 'number'
-                                WHEN ccol.name = 'bool' THEN 'boolean'
-                                ELSE 'text'
-                            END
-                        )
+                        CASE 
+                            WHEN ccol.type IN ('uint2', 'uint4','uint8', 'int', 'integer', 'smallint', 'double', 'double precision', 'bigint', 'float', 'numeric', 'real') THEN jsonb_build_object('type', 'number')
+                            WHEN ccol.type = 'boolean' THEN jsonb_build_object('type', 'boolean')
+                            WHEN ccol.type = 'bytea' THEN jsonb_build_object(
+                                'type', 'string',
+                                'contentEncoding', 'base64',
+                                'contentMediaType', 'application/octet-stream'
+                            )
+                            WHEN ccol.type = 'date' THEN jsonb_build_object('type', 'string', 'format', 'date')
+                            WHEN ccol.type = 'time' THEN jsonb_build_object('type', 'string', 'format', 'time')
+                            WHEN ccol.type ilike 'timestamp%%' THEN jsonb_build_object('type', 'string', 'format', 'date-time')
+                            WHEN ccol.type = 'jsonb' THEN jsonb_build_object('type', 'object')
+                            WHEN ccol.type = 'uuid' THEN jsonb_build_object('type', 'string', 'format', 'uuid')
+                            ELSE jsonb_build_object('type', 'string')
+                        END
                     )
                 ) AS input_schema
             FROM mz_internal.mz_show_my_object_privileges op
