@@ -23,7 +23,6 @@ The server supports two transports:
 """
 
 import asyncio
-from dataclasses import dataclass
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Sequence, AsyncIterator
@@ -42,11 +41,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-
-
-@dataclass
-class AppContext:
-    mz_client: MzClient
 
 
 def get_lifespan(cfg):
