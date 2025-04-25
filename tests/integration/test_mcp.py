@@ -1,5 +1,6 @@
 import json
 import os
+import requests
 import subprocess
 import time
 import pytest
@@ -8,11 +9,29 @@ import pytest_asyncio
 from docker.errors import DockerException
 from psycopg_pool import AsyncConnectionPool
 from testcontainers.core.container import DockerContainer
+from testcontainers.core.waiting_utils import wait_container_is_ready
 
 from materialize_mcp_server.mz_client import MzClient
 
 
-@pytest_asyncio.fixture(scope="session")
+def wait_for_readyz(host: str, port: int, timeout: int = 120, interval: int = 1):
+    url = f"http://{host}:{port}/api/readyz"
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        try:
+            response = requests.get(url)
+            if response.status_code == 200:
+                return
+        except requests.RequestException:
+            pass
+        print("Waiting for materialized to become ready...")
+        time.sleep(interval)
+
+    raise TimeoutError(f"Materialized did not become ready within {timeout} seconds.")
+
+
+@pytest_asyncio.fixture(scope="function")
 async def materialize_pool():
     try:
         context = subprocess.check_output(
@@ -34,7 +53,7 @@ async def materialize_pool():
         # Configure the container with explicit settings
         container = (
             DockerContainer("materialize/materialized:latest")
-            .with_exposed_ports(6875)
+            .with_exposed_ports(6875, 6878)
             .with_env("MZ_LOG_FILTER", "info")
         )
 
@@ -52,31 +71,15 @@ async def materialize_pool():
         )
 
     host = container.get_container_host_ip()
-    port = container.get_exposed_port(6875)
-    print(f"Materialize running at {host}:{port}")
+    sql_port = int(container.get_exposed_port(6875))
+    http_port = int(container.get_exposed_port(6878))
+    wait_for_readyz(host, http_port)
+    print(f"Materialize running at {host}:{sql_port}")
 
-    dsn = f"postgresql://materialize@{host}:{port}/materialize"
-
-    # Wait for the container to be ready
-    pool = AsyncConnectionPool(conninfo=dsn, min_size=1, max_size=10, open=False)
-
-    for attempt in range(30):
-        try:
-            print(f"Connection attempt {attempt + 1}...")
-
-            await pool.open()
-            yield pool
-
-            break
-        except psycopg.OperationalError as e:
-            if attempt == 29:
-                container.stop()
-                pytest.skip(
-                    f"Materialize did not become ready in time; skipping integration tests. Last error: {e}"
-                )
-            time.sleep(10)
-            print(f"Connection attempt {attempt + 1} failed, retrying...")
-
+    conn = f"postgres://materialize@{host}:{sql_port}/materialize"
+    pool = AsyncConnectionPool(conninfo=conn, min_size=1, max_size=10, open=False)
+    await pool.open()
+    yield pool
     container.stop()
 
 
