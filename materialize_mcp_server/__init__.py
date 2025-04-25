@@ -50,8 +50,6 @@ class AppContext:
 def get_lifespan(cfg):
     @asynccontextmanager
     async def lifespan(server) -> AsyncIterator[MzClient]:
-        logger.info("Initializing database connection pool for dsn {}".format(cfg.dsn))
-
         async def configure(conn):
             await conn.set_autocommit(True)
 
@@ -63,6 +61,13 @@ def get_lifespan(cfg):
             configure=configure,
         ) as pool:
             try:
+                async with pool.connection() as conn:
+                    await conn.set_autocommit(True)
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            "Starting MCP Server for Materialize Environment ' || mz_environment_id() || ' using role ' || current_role"
+                        )
+                        logger.info(await cur.fetchone()[0])
                 yield MzClient(pool=pool)
             finally:
                 await pool.close()
