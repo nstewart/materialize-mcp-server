@@ -64,8 +64,12 @@ class MzClient:
                         sql.Identifier(meta["cluster"])
                     )
                 )
+
                 await cur.execute(
-                    sql.SQL("SELECT * FROM {} WHERE {};").format(
+                    sql.SQL("SELECT {} FROM {} WHERE {};").format(
+                        sql.SQL(",").join(
+                            sql.Identifier(col) for col in meta["output_columns"]
+                        ),
                         sql.Identifier(
                             meta["database"], meta["schema"], meta["object_name"]
                         ),
@@ -80,22 +84,22 @@ class MzClient:
                     ),
                     list(arguments.values()),
                 )
-                row = await cur.fetchone()
-                if not row:
-                    return []
-
-                # TODO push projection pushdown into the database
+                rows = await cur.fetchall()
                 columns = [desc.name for desc in cur.description]
-                result = {
-                    k: v
-                    for k, v in dict(zip(columns, row)).items()
-                    if k not in arguments
-                }
-                return [
-                    TextContent(
-                        text=json.dumps(result, default=json_serial), type="text"
-                    )
+
+                result = [
+                    {k: v for k, v in dict(zip(columns, row)).items()} for row in rows
                 ]
+
+                match len(result):
+                    case 0:
+                        return []
+                    case 1:
+                        text = json.dumps(result[0], default=json_serial)
+                    case _:
+                        text = json.dumps(result, default=json_serial)
+
+                return [TextContent(text=text, type="text")]
 
 
 def json_serial(obj):
@@ -142,7 +146,7 @@ def get_tool_query(tool: Optional[str] = None) -> Tuple[sql.Composed | sql.SQL, 
                 cts.comment AS description,
                 jsonb_build_object(
                     'type', 'object',
-                    'required', jsonb_agg(distinct ccol.name),
+                    'required', jsonb_agg(distinct ccol.name) FILTER (WHERE ccol.position = ic.on_position),
                     'properties', jsonb_object_agg(
                         ccol.name,
                         CASE 
@@ -160,15 +164,16 @@ def get_tool_query(tool: Optional[str] = None) -> Tuple[sql.Composed | sql.SQL, 
                             WHEN ccol.type = 'uuid' THEN jsonb_build_object('type', 'string', 'format', 'uuid')
                             ELSE jsonb_build_object('type', 'string')
                         END
-                    )
-                ) AS input_schema
+                    ) FILTER (WHERE ccol.position = ic.on_position)
+                ) AS input_schema,
+                array_agg(distinct ccol.name) FILTER (WHERE ccol.position <> ic.on_position) AS output_columns
             FROM mz_internal.mz_show_my_object_privileges op
             JOIN mz_objects o ON op.name = o.name AND op.object_type = o.type
             JOIN mz_schemas s ON s.name = op.schema AND s.id = o.schema_id
             JOIN mz_databases d ON d.name = op.database AND d.id = s.database_id
             JOIN mz_indexes i ON i.on_id = o.id
             JOIN mz_index_columns ic ON i.id = ic.index_id
-            JOIN mz_columns ccol ON ccol.id = o.id AND ccol.position = ic.on_position
+            JOIN mz_columns ccol ON ccol.id = o.id
             JOIN mz_clusters c ON c.id = i.cluster_id
             JOIN mz_internal.mz_show_my_cluster_privileges cp ON cp.name = c.name
             JOIN mz_internal.mz_comments cts ON cts.id = o.id AND cts.object_sub_id IS NULL
