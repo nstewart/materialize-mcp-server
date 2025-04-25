@@ -28,6 +28,7 @@ class MzClient:
         pool = self.pool
         tools: List[Tool] = []
         async with pool.connection() as conn:
+            await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
                 query, params = get_tool_query()
                 await cur.execute(query, params)
@@ -46,6 +47,7 @@ class MzClient:
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         pool = self.pool
         async with pool.connection() as conn:
+            await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
                 q_meta, p_meta = get_tool_query(name)
                 await cur.execute(q_meta, p_meta)
@@ -55,6 +57,7 @@ class MzClient:
             raise RuntimeError(f"Tool not found: {name}")
 
         async with pool.connection() as conn:
+            await conn.set_autocommit(True)
             async with conn.cursor() as cur:
                 await cur.execute(
                     sql.SQL("SET cluster TO {};").format(

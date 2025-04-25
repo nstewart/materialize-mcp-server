@@ -93,15 +93,13 @@ class MaterializeMCP(FastMCP):
         )
 
     async def list_tools(self) -> List[Tool]:
-        return (
-            self.get_context().request_context.lifespan_context.mz_client.list_tools()
-        )
+        return await self.get_context().request_context.lifespan_context.list_tools()
 
     async def call_tool(
         self, name: str, arguments: Dict[str, Any]
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         logger.debug(f"Calling tool {name} with args {arguments}")
-        return self.get_context().request_context.lifespan_context.mz_client.call_tool(
+        return await self.get_context().request_context.lifespan_context.call_tool(
             name, arguments
         )
 

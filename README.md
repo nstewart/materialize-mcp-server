@@ -6,10 +6,14 @@ Define stable, versioned, and secure data tools simply by creating SQL views and
 
 ## Installation
 
-The package can be installed from PyPI using pip:
+The package can be installed locally. We recommend using [uv](https://docs.astral.sh/uv/) as your build tool.
 
 ```bash
-pip install materialize-mcp-server
+git clone https://github.com/MaterializeInc/materialize-mcp-server
+cd materialize-mcp-server
+uv sync --dev
+uv run hatch build
+uv pip install dist/materialize_mcp_server-0.1.0-py3-none-any.whl
 ```
 
 ## Why not `execute_sql`?
@@ -25,31 +29,27 @@ By shifting to **operational data products**  we remove variability and ensure t
 * **Observable:** usage is logged per‑tool, making cost and performance explicit.
 * **Secure:** if you don't create a view/index, it isn't callable.
 
-## Quick Start
+## Quickstart
 
 Run the server with default settings:
 
 ```bash
-materialize-mcp
+uv run materialize-mcp
 ```
 
-Or with custom configuration:
+## Configuration
 
-```bash
-materialize-mcp --host 127.0.0.1 --port 8080 --pool-min-size 2 --pool-max-size 20 --log-level DEBUG
-```
 
-You can also configure the server using environment variables:
+| Argument | Environment Variable | Default | Description |
+|----------|---------------------|---------|-------------|
+| `--mz-dsn` | `MZ_DSN` | `postgresql://materialize@localhost:6875/materialize` | Materialize DSN |
+| `--transport` | `MCP_TRANSPORT` | `stdio` | Communication transport (`stdio` or `sse`) |
+| `--host` | `MCP_HOST` | `0.0.0.0` | Server host |
+| `--port` | `MCP_PORT` | `3001` | Server port |
+| `--pool-min-size` | `MCP_POOL_MIN_SIZE` | `1` | Minimum connection pool size |
+| `--pool-max-size` | `MCP_POOL_MAX_SIZE` | `10` | Maximum connection pool size |
+| `--log-level` | `MCP_LOG_LEVEL` | `INFO` | Logging level |
 
-```bash
-export MZ_DSN=postgresql://materialize@localhost:6875/materialize
-export MCP_HOST=127.0.0.1
-export MCP_PORT=8080
-export MCP_POOL_MIN_SIZE=2
-export MCP_POOL_MAX_SIZE=20
-export MCP_LOG_LEVEL=DEBUG
-materialize-mcp
-```
 
 ## Defining a Tool
 
@@ -90,20 +90,3 @@ Refresh the server and the tool now appears in `tools/list`:
 }
 ```
 
-## Configuration
-
-The server can be configured using command-line arguments or environment variables:
-
-| Argument | Environment Variable | Default | Description |
-|----------|---------------------|---------|-------------|
-| `--mz-dsn` | `MZ_DSN` | `postgresql://materialize@localhost:6875/materialize` | Materialize DSN |
-| `--transport` | `MCP_TRANSPORT` | `stdio` | Communication transport (`stdio` or `sse`) |
-| `--host` | `MCP_HOST` | `0.0.0.0` | Server host |
-| `--port` | `MCP_PORT` | `3001` | Server port |
-| `--pool-min-size` | `MCP_POOL_MIN_SIZE` | `1` | Minimum connection pool size |
-| `--pool-max-size` | `MCP_POOL_MAX_SIZE` | `10` | Maximum connection pool size |
-| `--log-level` | `MCP_LOG_LEVEL` | `INFO` | Logging level |
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
