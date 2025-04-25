@@ -28,6 +28,8 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Sequence, AsyncIterator
 
+from psycopg.rows import dict_row
+
 from .mz_client import MzClient
 from .config import load_config, Config
 from mcp.server import FastMCP
@@ -63,11 +65,14 @@ def get_lifespan(cfg):
             try:
                 async with pool.connection() as conn:
                     await conn.set_autocommit(True)
-                    async with conn.cursor() as cur:
+                    async with conn.cursor(row_factory=dict_row) as cur:
                         await cur.execute(
-                            "Starting MCP Server for Materialize Environment ' || mz_environment_id() || ' using role ' || current_role"
+                            "SELECT mz_environment_id() AS env, current_role AS role;"
                         )
-                        logger.info(await cur.fetchone()[0])
+                        meta = await cur.fetchone()
+                        logger.info(
+                            f"starting server for env {meta['env']} with user {meta['role']} ..."
+                        )
                 yield MzClient(pool=pool)
             finally:
                 await pool.close()

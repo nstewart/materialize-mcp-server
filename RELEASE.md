@@ -39,7 +39,7 @@ EOF
 
 2. Build the distribution:
 ```bash
-uv run python -m build
+uv run hatch buildu
 ```
 
 3. Test the distribution locally:
