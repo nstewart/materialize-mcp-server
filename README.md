@@ -11,9 +11,7 @@ The package can be installed locally. We recommend using [uv](https://docs.astra
 ```bash
 git clone https://github.com/MaterializeInc/materialize-mcp-server
 cd materialize-mcp-server
-uv sync --dev
-uv run hatch build
-uv pip install dist/materialize_mcp_server-0.1.0-py3-none-any.whl
+uv run materialize-mcp-server
 ```
 
 ## Why not `execute_sql`?

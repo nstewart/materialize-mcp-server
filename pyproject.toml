@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-materialize-mcp = "materialize_mcp_server:main"
+materialize-mcp-server = "materialize_mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/MaterializeInc/materialize-mcp-server"
