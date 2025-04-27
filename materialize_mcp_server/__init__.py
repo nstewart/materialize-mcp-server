@@ -27,11 +27,14 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Sequence, AsyncIterator
 
+import uvicorn
+from mcp import stdio_server
+from mcp.server.sse import SseServerTransport
 from psycopg.rows import dict_row
 
 from .mz_client import MzClient
-from .config import load_config, Config
-from mcp.server import FastMCP
+from .config import load_config
+from mcp.server import Server
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 from psycopg_pool import AsyncConnectionPool
 
@@ -74,39 +77,59 @@ def get_lifespan(cfg):
     return lifespan
 
 
-class MaterializeMCP(FastMCP):
-    def __init__(self, cfg: Config) -> None:
-        self.cfg = cfg
-        logger.setLevel(cfg.log_level)
-        super().__init__(
-            name="Materialize MCP Server",
-            lifespan=get_lifespan(cfg),
-            host=cfg.host,
-            port=cfg.port,
-            log_level=cfg.log_level,
-        )
-
-    async def list_tools(self) -> List[Tool]:
-        return await self.get_context().request_context.lifespan_context.list_tools()
-
-    async def call_tool(
-        self, name: str, arguments: Dict[str, Any]
-    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        logger.debug(f"Calling tool {name} with args {arguments}")
-        return await self.get_context().request_context.lifespan_context.call_tool(
-            name, arguments
-        )
-
-
 async def run():
     cfg = load_config()
-    server = MaterializeMCP(cfg)
+    server = Server("materialize_mcp_server", lifespan=get_lifespan(cfg))
+
+    @server.list_tools()
+    async def list_tools() -> List[Tool]:
+        return await server.request_context.lifespan_context.list_tools()
+
+    @server.call_tool()
+    async def call_tool(
+        name: str, arguments: Dict[str, Any]
+    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        return await server.request_context.lifespan_context.call_tool(name, arguments)
 
     match cfg.transport:
         case "stdio":
-            await server.run_stdio_async()
+            async with stdio_server() as (read_stream, write_stream):
+                await server.run(
+                    read_stream,
+                    write_stream,
+                    server.create_initialization_options(),
+                )
         case "sse":
-            await server.run_sse_async()
+            from starlette.applications import Starlette
+            from starlette.routing import Mount, Route
+
+            sse = SseServerTransport("/messages/")
+
+            async def handle_sse(request):
+                async with sse.connect_sse(
+                    request.scope, request.receive, request._send
+                ) as streams:
+                    await server.run(
+                        streams[0],
+                        streams[1],
+                        server.create_initialization_options(),
+                    )
+
+            starlette_app = Starlette(
+                routes=[
+                    Route("/sse", endpoint=handle_sse),
+                    Mount("/messages/", app=sse.handle_post_message),
+                ],
+            )
+
+            config = uvicorn.Config(
+                starlette_app,
+                host=cfg.host,
+                port=cfg.port,
+                log_level=cfg.log_level.upper(),
+            )
+            server = uvicorn.Server(config)
+            await server.serve()
         case t:
             raise ValueError(f"Unknown transport: {t}")
 
