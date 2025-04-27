@@ -127,6 +127,25 @@ async def test_basic_tool(materialize_pool):
 
 
 @pytest.mark.asyncio
+async def test_exists_tool(materialize_pool):
+    client = MzClient(pool=materialize_pool)
+    async with materialize_pool.connection() as conn:
+        await conn.set_autocommit(True)
+        async with conn.cursor() as cur:
+            await cur.execute("CREATE VIEW my_tool AS SELECT 1 AS id;")
+            await cur.execute("CREATE INDEX my_tool_id_idx ON my_tool (id);")
+            await cur.execute("COMMENT ON VIEW my_tool IS 'Check if id exists';")
+
+    result = await client.call_tool("my_tool_id_idx", {"id": 1})
+    assert len(result) == 1
+    assert json.loads(result[0].text) == {"exists": True}
+
+    result = await client.call_tool("my_tool_id_idx", {"id": 2})
+    assert len(result) == 1
+    assert json.loads(result[0].text) == {"exists": False}
+
+
+@pytest.mark.asyncio
 async def test_type_handling_keys(materialize_pool):
     client = MzClient(pool=materialize_pool)
     async with materialize_pool.connection() as conn:
