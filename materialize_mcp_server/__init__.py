@@ -32,7 +32,7 @@ from mcp import stdio_server
 from mcp.server.sse import SseServerTransport
 from psycopg.rows import dict_row
 
-from .mz_client import MzClient
+from .mz_client import MzClient, MissingTool
 from .config import load_config
 from mcp.server import Server, NotificationOptions
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
@@ -113,6 +113,10 @@ async def run():
             )
             logger.debug(f"Tool '{name}' executed successfully")
             return result
+        except MissingTool:
+            logger.error(f"Tool not found: {name}")
+            await server.request_context.session.send_tool_list_changed()
+            raise
         except Exception as e:
             logger.error(f"Error executing tool '{name}': {str(e)}")
             raise

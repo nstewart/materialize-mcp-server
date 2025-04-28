@@ -68,6 +68,11 @@ TOOL_QUERY = base = sql.SQL(
 )
 
 
+class MissingTool(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
 class MzClient:
     def __init__(self, pool: AsyncConnectionPool) -> None:
         self.pool = pool
@@ -110,7 +115,7 @@ class MzClient:
                 meta = await cur.fetchone()
 
         if not meta:
-            raise RuntimeError(f"Tool not found: {name}")
+            raise MissingTool(f"Tool not found: {name}")
 
         async with pool.connection() as conn:
             await conn.set_autocommit(True)
