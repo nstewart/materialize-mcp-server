@@ -300,6 +300,36 @@ class MzClient:
                     "cluster_name": cluster_name
                 }
 
+    async def drop_index(self, index_name: str, cascade: bool = False) -> Dict[str, Any]:
+        """
+        Drop an index from Materialize.
+        
+        Args:
+            index_name: Name of the index to drop
+            cascade: Whether to use CASCADE option (default: False)
+            
+        Returns:
+            Dictionary with the result of the index deletion
+        """
+        pool = self.pool
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Execute DROP INDEX statement
+                if cascade:
+                    drop_sql = f"DROP INDEX {index_name} CASCADE"
+                else:
+                    drop_sql = f"DROP INDEX {index_name}"
+                await cur.execute(drop_sql)
+                
+                # Return success result
+                return {
+                    "status": "success",
+                    "message": f"Index '{index_name}' dropped successfully",
+                    "index_name": index_name,
+                    "cascade": cascade
+                }
+
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""

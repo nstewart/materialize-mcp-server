@@ -257,6 +257,26 @@ async def run():
             }
         )
         tools.append(create_index_tool)
+        # Add the drop_index tool
+        drop_index_tool = Tool(
+            name="drop_index",
+            description="Drop an index from Materialize with optional CASCADE.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "index_name": {
+                        "type": "string",
+                        "description": "Name of the index to drop"
+                    },
+                    "cascade": {
+                        "type": "boolean",
+                        "description": "Whether to use CASCADE option (default: false)"
+                    }
+                },
+                "required": ["index_name"]
+            }
+        )
+        tools.append(drop_index_tool)
         return tools
 
     @server.call_tool()
@@ -360,6 +380,19 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing create_index: {str(e)}")
+                raise
+        if name == "drop_index":
+            try:
+                index_name = arguments.get("index_name")
+                cascade = arguments.get("cascade", False)
+                if not index_name:
+                    raise ValueError("index_name is required")
+                result = await server.request_context.lifespan_context.drop_index(index_name, cascade)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"drop_index executed successfully: {result['message']}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing drop_index: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")
