@@ -145,6 +145,20 @@ class MzClient:
                     objects.append(row)
         return objects
 
+    async def list_clusters(self) -> List[Dict[str, Any]]:
+        """
+        Return the list of clusters in Materialize.
+        """
+        pool = self.pool
+        clusters: List[Dict[str, Any]] = []
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute("SHOW CLUSTERS")
+                async for row in cur:
+                    clusters.append(row)
+        return clusters
+
     async def call_tool(
         self, name: str, arguments: Dict[str, Any]
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:

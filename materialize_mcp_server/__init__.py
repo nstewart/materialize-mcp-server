@@ -127,6 +127,18 @@ async def run():
         )
         tools.append(list_objects_tool)
         
+        # Add the list_clusters tool
+        list_clusters_tool = Tool(
+            name="list_clusters",
+            description="List all clusters in the Materialize instance.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        )
+        tools.append(list_clusters_tool)
+        
         return tools
 
     @server.call_tool()
@@ -144,6 +156,17 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing list_objects: {str(e)}")
+                raise
+        
+        # Handle the list_clusters tool
+        if name == "list_clusters":
+            try:
+                clusters = await server.request_context.lifespan_context.list_clusters()
+                result_text = json.dumps(clusters, default=json_serial, indent=2)
+                logger.debug(f"list_clusters executed successfully, found {len(clusters)} clusters")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing list_clusters: {str(e)}")
                 raise
         
         # Handle regular indexed view tools
