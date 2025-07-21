@@ -224,6 +224,31 @@ class MzClient:
                     slow_queries.append(row)
         return slow_queries
 
+    async def show_indexes(self, schema: str = None, cluster: str = None) -> list[dict]:
+        """
+        Show indexes, optionally filtered by schema and/or cluster.
+        Args:
+            schema: Optional schema name to filter indexes
+            cluster: Optional cluster name to filter indexes
+        Returns:
+            List of index records
+        """
+        pool = self.pool
+        indexes = []
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                sql_parts = ["SHOW INDEXES"]
+                if schema:
+                    sql_parts.append(f"FROM {schema}")
+                if cluster:
+                    sql_parts.append(f"IN CLUSTER {cluster}")
+                sql_stmt = " ".join(sql_parts)
+                await cur.execute(sql_stmt)
+                async for row in cur:
+                    indexes.append(row)
+        return indexes
+
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""

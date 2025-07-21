@@ -197,6 +197,26 @@ async def run():
             }
         )
         tools.append(list_slow_queries_tool)
+        # Add the list_indexes tool
+        list_indexes_tool = Tool(
+            name="list_indexes",
+            description="List indexes in Materialize, optionally filtered by schema and/or cluster.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "schema": {
+                        "type": "string",
+                        "description": "Optional schema name to filter indexes"
+                    },
+                    "cluster": {
+                        "type": "string",
+                        "description": "Optional cluster name to filter indexes"
+                    }
+                },
+                "required": []
+            }
+        )
+        tools.append(list_indexes_tool)
         return tools
 
     @server.call_tool()
@@ -265,6 +285,17 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing list_slow_queries: {str(e)}")
+                raise
+        if name == "list_indexes":
+            try:
+                schema = arguments.get("schema")
+                cluster = arguments.get("cluster")
+                result = await server.request_context.lifespan_context.show_indexes(schema, cluster)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"list_indexes executed successfully, found {len(result)} indexes")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing list_indexes: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")
