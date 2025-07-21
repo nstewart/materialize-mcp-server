@@ -159,6 +159,33 @@ class MzClient:
                     clusters.append(row)
         return clusters
 
+    async def create_cluster(self, cluster_name: str, size: str) -> Dict[str, Any]:
+        """
+        Create a new cluster in Materialize with the specified name and size.
+        
+        Args:
+            cluster_name: Name of the cluster to create
+            size: Size specification (e.g., '100cc', '400cc', 'medium', etc.)
+            
+        Returns:
+            Dictionary with the result of the cluster creation
+        """
+        pool = self.pool
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Execute CREATE CLUSTER statement
+                create_sql = f"CREATE CLUSTER {cluster_name} (SIZE = '{size}')"
+                await cur.execute(create_sql)
+                
+                # Return success result
+                return {
+                    "status": "success",
+                    "message": f"Cluster '{cluster_name}' created successfully with size '{size}'",
+                    "cluster_name": cluster_name,
+                    "size": size
+                }
+
     async def call_tool(
         self, name: str, arguments: Dict[str, Any]
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:

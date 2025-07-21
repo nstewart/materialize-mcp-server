@@ -139,6 +139,27 @@ async def run():
         )
         tools.append(list_clusters_tool)
         
+        # Add the create_cluster tool
+        create_cluster_tool = Tool(
+            name="create_cluster",
+            description="Create a new cluster in Materialize with the specified name and size.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cluster_name": {
+                        "type": "string",
+                        "description": "Name of the cluster to create"
+                    },
+                    "size": {
+                        "type": "string", 
+                        "description": "Size specification (e.g., '100cc', '400cc', 'medium', etc.)"
+                    }
+                },
+                "required": ["cluster_name", "size"]
+            }
+        )
+        tools.append(create_cluster_tool)
+        
         return tools
 
     @server.call_tool()
@@ -167,6 +188,22 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing list_clusters: {str(e)}")
+                raise
+        
+        # Handle the create_cluster tool
+        if name == "create_cluster":
+            try:
+                cluster_name = arguments.get("cluster_name")
+                size = arguments.get("size")
+                if not cluster_name or not size:
+                    raise ValueError("Both cluster_name and size are required")
+                
+                result = await server.request_context.lifespan_context.create_cluster(cluster_name, size)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"create_cluster executed successfully: {result['message']}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing create_cluster: {str(e)}")
                 raise
         
         # Handle regular indexed view tools
