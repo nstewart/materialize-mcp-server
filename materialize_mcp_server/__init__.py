@@ -23,6 +23,7 @@ Available Tools:
 9.  ``drop_index`` - Drops an index with optional CASCADE support
 10. ``create_view`` - Creates a view with the specified name and SQL query
 11. ``show_sources`` - Shows sources, optionally filtered by schema and/or cluster
+12. ``create_postgres_connection`` - Creates a PostgreSQL connection in Materialize
 """
 
 import asyncio
@@ -319,6 +320,46 @@ async def run():
             }
         )
         tools.append(show_sources_tool)
+        # Add the create_postgres_connection tool
+        create_postgres_connection_tool = Tool(
+            name="create_postgres_connection",
+            description="Create a PostgreSQL connection in Materialize.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "connection_name": {
+                        "type": "string",
+                        "description": "Name of the connection to create"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "PostgreSQL host address"
+                    },
+                    "database": {
+                        "type": "string",
+                        "description": "Database name"
+                    },
+                    "password_secret": {
+                        "type": "string",
+                        "description": "Name of the secret containing the password"
+                    },
+                    "port": {
+                        "type": "integer",
+                        "description": "PostgreSQL port (default: 5432)"
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "PostgreSQL username (default: 'materialize')"
+                    },
+                    "ssl_mode": {
+                        "type": "string",
+                        "description": "SSL mode (default: 'require')"
+                    }
+                },
+                "required": ["connection_name", "host", "database", "password_secret"]
+            }
+        )
+        tools.append(create_postgres_connection_tool)
         return tools
 
     @server.call_tool()
@@ -458,6 +499,28 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing show_sources: {str(e)}")
+                raise
+        if name == "create_postgres_connection":
+            try:
+                connection_name = arguments.get("connection_name")
+                host = arguments.get("host")
+                database = arguments.get("database")
+                password_secret = arguments.get("password_secret")
+                port = arguments.get("port", 5432)
+                username = arguments.get("username", "materialize")
+                ssl_mode = arguments.get("ssl_mode", "require")
+                
+                if not connection_name or not host or not database or not password_secret:
+                    raise ValueError("connection_name, host, database, and password_secret are required")
+                
+                result = await server.request_context.lifespan_context.create_postgres_connection(
+                    connection_name, host, database, password_secret, port, username, ssl_mode
+                )
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"create_postgres_connection executed successfully: {result['message']}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing create_postgres_connection: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")

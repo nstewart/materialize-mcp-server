@@ -385,6 +385,71 @@ class MzClient:
                     sources.append(row)
         return sources
 
+    async def create_postgres_connection(
+        self, 
+        connection_name: str,
+        host: str, 
+        database: str, 
+        password_secret: str,
+        port: int = 5432,
+        username: str = "materialize",
+        ssl_mode: str = "require"
+    ) -> Dict[str, Any]:
+        """
+        Create a PostgreSQL connection in Materialize.
+        
+        Args:
+            connection_name: Name of the connection to create
+            host: PostgreSQL host address
+            database: Database name
+            password_secret: Name of the secret containing the password
+            port: PostgreSQL port (default: 5432)
+            username: PostgreSQL username (default: "materialize")
+            ssl_mode: SSL mode (default: "require")
+            
+        Returns:
+            Dictionary with the result of the connection creation
+        """
+        pool = self.pool
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Execute CREATE CONNECTION statement
+                # Note: password_secret should NOT be quoted as it's an identifier, not a string literal
+                # Use sql.SQL and sql.Identifier for safe SQL construction
+                create_sql = sql.SQL("""
+                CREATE CONNECTION {} TO POSTGRES (
+                    HOST {},
+                    PORT {},
+                    USER {},
+                    PASSWORD SECRET {},
+                    SSL MODE {},
+                    DATABASE {}
+                );
+                """).format(
+                    sql.Identifier(connection_name),
+                    sql.Literal(host),
+                    sql.Literal(port),
+                    sql.Literal(username),
+                    sql.Identifier(password_secret),  # password_secret is an identifier, not a literal
+                    sql.Literal(ssl_mode),
+                    sql.Literal(database)
+                )
+                await cur.execute(create_sql)
+                
+                # Return success result
+                return {
+                    "status": "success",
+                    "message": f"PostgreSQL connection '{connection_name}' created successfully",
+                    "connection_name": connection_name,
+                    "host": host,
+                    "port": port,
+                    "username": username,
+                    "database": database,
+                    "ssl_mode": ssl_mode,
+                    "password_secret": password_secret
+                }
+
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
