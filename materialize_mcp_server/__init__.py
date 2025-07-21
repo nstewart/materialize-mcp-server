@@ -188,6 +188,23 @@ async def run():
         )
         tools.append(run_sql_transaction_tool)
         
+        # Add the list_slow_queries tool
+        list_slow_queries_tool = Tool(
+            name="list_slow_queries",
+            description="List slow queries from recent activity log with execution time above the given threshold (ms).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "threshold_ms": {
+                        "type": "integer",
+                        "description": "Minimum execution time in milliseconds to consider a query slow"
+                    }
+                },
+                "required": ["threshold_ms"]
+            }
+        )
+        tools.append(list_slow_queries_tool)
+        
         return tools
 
     @server.call_tool()
@@ -255,6 +272,20 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing run_sql_transaction: {str(e)}")
+                raise
+        
+        # Handle the list_slow_queries tool
+        if name == "list_slow_queries":
+            try:
+                threshold_ms = arguments.get("threshold_ms")
+                if threshold_ms is None:
+                    raise ValueError("threshold_ms is required")
+                result = await server.request_context.lifespan_context.list_slow_queries(threshold_ms)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"list_slow_queries executed successfully, found {len(result)} slow queries")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing list_slow_queries: {str(e)}")
                 raise
         
         # Handle regular indexed view tools

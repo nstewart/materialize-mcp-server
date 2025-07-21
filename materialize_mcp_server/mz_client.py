@@ -328,6 +328,39 @@ class MzClient:
             finally:
                 await conn.set_autocommit(True)  # Reset to autocommit mode
 
+    async def list_slow_queries(self, threshold_ms: int) -> list[dict]:
+        """
+        List slow queries from mz_internal.mz_recent_activity_log with execution_time_ms above the threshold.
+        Args:
+            threshold_ms: Minimum execution time in milliseconds to consider a query slow
+        Returns:
+            List of slow query records
+        """
+        pool = self.pool
+        slow_queries = []
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """
+                    SELECT 
+                        sql_text,
+                        execution_time_ms,
+                        began_at,
+                        finished_at,
+                        cluster_name
+                    FROM mz_internal.mz_recent_activity_log 
+                    WHERE finished_at IS NOT NULL 
+                        AND execution_time_ms > %s
+                    ORDER BY execution_time_ms DESC
+                    LIMIT 20;
+                    """,
+                    (threshold_ms,)
+                )
+                async for row in cur:
+                    slow_queries.append(row)
+        return slow_queries
+
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
