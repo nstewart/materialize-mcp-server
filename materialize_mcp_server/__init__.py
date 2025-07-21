@@ -1,25 +1,22 @@
 """
 Materialize MCP Server
 
-A  server that exposes Materialize indexes as "tools" over the Model Context
-Protocol (MCP).  Each Materialize index that the connected role is allowed to
-`SELECT` from (and whose cluster it can `USAGE`) is surfaced as a tool whose
-inputs correspond to the indexed columns and whose output is the remaining
-columns of the underlying view.
+A server that provides static tools for managing and querying Materialize databases
+over the Model Context Protocol (MCP). The server exposes tools for listing objects,
+managing clusters, executing SQL transactions, and monitoring query performance.
 
 The server supports two transports:
 
 * stdio – lines of JSON over stdin/stdout (handy for local CLIs)
 * sse   – server‑sent events suitable for web browsers
 
----------------
+Available Tools:
 
-1.  ``list_tools`` executes a catalog query to derive the list of exposable
-    indexes; the result is translated into MCP ``Tool`` objects.
-2.  ``call_tool`` validates the requested tool, switches the session to the
-    appropriate cluster, executes a parameterised ``SELECT`` against the
-    indexed view, and returns the first matching row (minus any columns whose
-    values were supplied as inputs).
+1.  ``list_objects`` - Lists all queryable objects in the database
+2.  ``list_clusters`` - Lists all clusters in the Materialize instance
+3.  ``create_cluster`` - Creates a new cluster with specified name and size
+4.  ``run_sql_transaction`` - Executes SQL statements within a transaction
+5.  ``list_slow_queries`` - Lists queries with execution time above threshold
 """
 
 import asyncio
@@ -113,8 +110,8 @@ async def run():
     @server.list_tools()
     async def list_tools() -> List[Tool]:
         logger.debug("Listing available tools...")
-        tools = await server.request_context.lifespan_context.list_tools()
-        
+        # Only expose static tools
+        tools = []
         # Add the list_objects tool
         list_objects_tool = Tool(
             name="list_objects",
@@ -126,7 +123,6 @@ async def run():
             }
         )
         tools.append(list_objects_tool)
-        
         # Add the list_clusters tool
         list_clusters_tool = Tool(
             name="list_clusters",
@@ -138,7 +134,6 @@ async def run():
             }
         )
         tools.append(list_clusters_tool)
-        
         # Add the create_cluster tool
         create_cluster_tool = Tool(
             name="create_cluster",
@@ -159,7 +154,6 @@ async def run():
             }
         )
         tools.append(create_cluster_tool)
-        
         # Add the run_sql_transaction tool
         run_sql_transaction_tool = Tool(
             name="run_sql_transaction",
@@ -187,7 +181,6 @@ async def run():
             }
         )
         tools.append(run_sql_transaction_tool)
-        
         # Add the list_slow_queries tool
         list_slow_queries_tool = Tool(
             name="list_slow_queries",
@@ -204,7 +197,6 @@ async def run():
             }
         )
         tools.append(list_slow_queries_tool)
-        
         return tools
 
     @server.call_tool()
@@ -212,8 +204,7 @@ async def run():
         name: str, arguments: Dict[str, Any]
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         logger.debug(f"Calling tool '{name}' with arguments: {arguments}")
-        
-        # Handle the list_objects tool
+        # Only handle static tools
         if name == "list_objects":
             try:
                 objects = await server.request_context.lifespan_context.list_objects()
@@ -223,8 +214,6 @@ async def run():
             except Exception as e:
                 logger.error(f"Error executing list_objects: {str(e)}")
                 raise
-        
-        # Handle the list_clusters tool
         if name == "list_clusters":
             try:
                 clusters = await server.request_context.lifespan_context.list_clusters()
@@ -234,15 +223,12 @@ async def run():
             except Exception as e:
                 logger.error(f"Error executing list_clusters: {str(e)}")
                 raise
-        
-        # Handle the create_cluster tool
         if name == "create_cluster":
             try:
                 cluster_name = arguments.get("cluster_name")
                 size = arguments.get("size")
                 if not cluster_name or not size:
                     raise ValueError("Both cluster_name and size are required")
-                
                 result = await server.request_context.lifespan_context.create_cluster(cluster_name, size)
                 result_text = json.dumps(result, default=json_serial, indent=2)
                 logger.debug(f"create_cluster executed successfully: {result['message']}")
@@ -250,20 +236,15 @@ async def run():
             except Exception as e:
                 logger.error(f"Error executing create_cluster: {str(e)}")
                 raise
-        
-        # Handle the run_sql_transaction tool
         if name == "run_sql_transaction":
             try:
                 cluster_name = arguments.get("cluster_name")
                 sql_statements = arguments.get("sql_statements")
                 isolation_level = arguments.get("isolation_level")
-                
                 if not cluster_name or not sql_statements:
                     raise ValueError("Both cluster_name and sql_statements are required")
-                
                 if not isinstance(sql_statements, list):
                     raise ValueError("sql_statements must be a list of strings")
-                
                 result = await server.request_context.lifespan_context.run_sql_transaction(
                     cluster_name, sql_statements, isolation_level
                 )
@@ -273,8 +254,6 @@ async def run():
             except Exception as e:
                 logger.error(f"Error executing run_sql_transaction: {str(e)}")
                 raise
-        
-        # Handle the list_slow_queries tool
         if name == "list_slow_queries":
             try:
                 threshold_ms = arguments.get("threshold_ms")
@@ -287,21 +266,9 @@ async def run():
             except Exception as e:
                 logger.error(f"Error executing list_slow_queries: {str(e)}")
                 raise
-        
-        # Handle regular indexed view tools
-        try:
-            result = await server.request_context.lifespan_context.call_tool(
-                name, arguments
-            )
-            logger.debug(f"Tool '{name}' executed successfully")
-            return result
-        except MissingTool:
-            logger.error(f"Tool not found: {name}")
-            await server.request_context.session.send_tool_list_changed()
-            raise
-        except Exception as e:
-            logger.error(f"Error executing tool '{name}': {str(e)}")
-            raise
+        # If not a static tool, raise error
+        logger.error(f"Tool not found: {name}")
+        raise MissingTool(f"Tool not found: {name}")
 
     options = server.create_initialization_options(
         notification_options=NotificationOptions(tools_changed=True)
