@@ -17,6 +17,10 @@ Available Tools:
 3.  ``create_cluster`` - Creates a new cluster with specified name and size
 4.  ``run_sql_transaction`` - Executes SQL statements within a transaction
 5.  ``list_slow_queries`` - Lists queries with execution time above threshold
+6.  ``list_schemas`` - Lists schemas, optionally filtered by database name
+7.  ``list_indexes`` - Lists indexes, optionally filtered by schema and/or cluster
+8.  ``create_index`` - Creates a default index on a source, view, or materialized view
+9.  ``drop_index`` - Drops an index with optional CASCADE support
 """
 
 import asyncio
