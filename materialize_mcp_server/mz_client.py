@@ -11,10 +11,6 @@ from psycopg_pool import AsyncConnectionPool
 import json
 
 
-# REMOVE TOOL_QUERY and all dynamic tool logic
-# Remove TOOL_QUERY definition
-# Remove list_tools method
-# Remove call_tool method
 
 OBJECTS_QUERY = sql.SQL(
     """
@@ -358,6 +354,40 @@ class MzClient:
                     "sql_query": sql_query
                 }
 
+    async def create_materialized_view(
+        self, 
+        view_name: str,
+        cluster_name: str, 
+        sql_query: str
+    ) -> Dict[str, Any]:
+        """
+        Create a materialized view with the specified name, cluster, and SQL query.
+        
+        Args:
+            view_name: Name of the materialized view to create
+            cluster_name: Name of the cluster to create the materialized view in
+            sql_query: The SELECT statement to embed in the materialized view
+            
+        Returns:
+            Dictionary with the result of the materialized view creation
+        """
+        pool = self.pool
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Execute CREATE MATERIALIZED VIEW statement
+                create_sql = f"CREATE MATERIALIZED VIEW {view_name} IN CLUSTER {cluster_name} AS {sql_query}"
+                await cur.execute(create_sql)
+                
+                # Return success result
+                return {
+                    "status": "success",
+                    "message": f"Materialized view '{view_name}' created successfully in cluster '{cluster_name}'",
+                    "view_name": view_name,
+                    "cluster_name": cluster_name,
+                    "sql_query": sql_query
+                }
+
     async def show_sources(self, schema: str = None, cluster: str = None) -> list[dict]:
         """
         Show sources, optionally filtered by schema and/or cluster.
@@ -514,6 +544,33 @@ class MzClient:
                     "for_schemas": for_schemas,
                     "for_tables": for_tables
                 }
+
+    async def list_materialized_views(self, schema: str = None, cluster: str = None) -> list[dict]:
+        """
+        List materialized views in Materialize, optionally filtered by schema and/or cluster.
+        
+        Args:
+            schema: Optional schema name to filter materialized views
+            cluster: Optional cluster name to filter materialized views
+            
+        Returns:
+            List of materialized view records
+        """
+        pool = self.pool
+        materialized_views = []
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                sql_parts = ["SHOW MATERIALIZED VIEWS"]
+                if schema:
+                    sql_parts.append(f"FROM {schema}")
+                if cluster:
+                    sql_parts.append(f"IN {cluster}")
+                sql_stmt = " ".join(sql_parts)
+                await cur.execute(sql_stmt)
+                async for row in cur:
+                    materialized_views.append(row)
+        return materialized_views
 
 
 def json_serial(obj):

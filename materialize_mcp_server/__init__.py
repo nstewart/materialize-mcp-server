@@ -25,6 +25,8 @@ Available Tools:
 11. ``show_sources`` - Shows sources, optionally filtered by schema and/or cluster
 12. ``create_postgres_connection`` - Creates a PostgreSQL connection in Materialize
 13. ``create_postgres_source`` - Creates a PostgreSQL source using an existing connection and publication
+14. ``create_materialized_view`` - Creates a materialized view with the specified name, cluster, and SQL query
+15. ``list_materialized_views`` - Lists materialized views in Materialize, optionally filtered by schema and/or cluster
 """
 
 import asyncio
@@ -407,6 +409,50 @@ async def run():
             }
         )
         tools.append(create_postgres_source_tool)
+        # Add the create_materialized_view tool
+        create_materialized_view_tool = Tool(
+            name="create_materialized_view",
+            description="Create a materialized view with the specified name, cluster, and SQL query.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "view_name": {
+                        "type": "string",
+                        "description": "Name of the materialized view to create"
+                    },
+                    "cluster_name": {
+                        "type": "string",
+                        "description": "Name of the cluster to create the materialized view in"
+                    },
+                    "sql_query": {
+                        "type": "string",
+                        "description": "The SELECT statement to embed in the materialized view"
+                    }
+                },
+                "required": ["view_name", "cluster_name", "sql_query"]
+            }
+        )
+        tools.append(create_materialized_view_tool)
+        # Add the list_materialized_views tool
+        list_materialized_views_tool = Tool(
+            name="list_materialized_views",
+            description="List materialized views in Materialize, optionally filtered by schema and/or cluster.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "schema": {
+                        "type": "string",
+                        "description": "Optional schema name to filter materialized views"
+                    },
+                    "cluster": {
+                        "type": "string",
+                        "description": "Optional cluster name to filter materialized views"
+                    }
+                },
+                "required": []
+            }
+        )
+        tools.append(list_materialized_views_tool)
         return tools
 
     @server.call_tool()
@@ -591,6 +637,35 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing create_postgres_source: {str(e)}")
+                raise
+        if name == "create_materialized_view":
+            try:
+                view_name = arguments.get("view_name")
+                cluster_name = arguments.get("cluster_name")
+                sql_query = arguments.get("sql_query")
+                
+                if not view_name or not cluster_name or not sql_query:
+                    raise ValueError("view_name, cluster_name, and sql_query are required")
+                
+                result = await server.request_context.lifespan_context.create_materialized_view(
+                    view_name, cluster_name, sql_query
+                )
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"create_materialized_view executed successfully: {result['message']}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing create_materialized_view: {str(e)}")
+                raise
+        if name == "list_materialized_views":
+            try:
+                schema = arguments.get("schema")
+                cluster = arguments.get("cluster")
+                result = await server.request_context.lifespan_context.list_materialized_views(schema, cluster)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"list_materialized_views executed successfully, found {len(result)} materialized views")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing list_materialized_views: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")
