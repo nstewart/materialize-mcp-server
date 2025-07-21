@@ -193,7 +193,7 @@ class MzClient:
 
     async def list_slow_queries(self, threshold_ms: int) -> list[dict]:
         """
-        List slow queries from mz_internal.mz_recent_activity_log with execution_time_ms above the threshold.
+        List slow queries from mz_internal.mz_recent_activity_log with execution time above the threshold.
         Args:
             threshold_ms: Minimum execution time in milliseconds to consider a query slow
         Returns:
@@ -207,14 +207,17 @@ class MzClient:
                 await cur.execute(
                     """
                     SELECT 
-                        sql_text,
-                        execution_time_ms,
+                        sql,
+                        EXTRACT(EPOCH FROM (finished_at - began_at)) * 1000 AS execution_time_ms,
                         began_at,
                         finished_at,
-                        cluster_name
+                        cluster_name,
+                        finished_status,
+                        rows_returned
                     FROM mz_internal.mz_recent_activity_log 
                     WHERE finished_at IS NOT NULL 
-                        AND execution_time_ms > %s
+                        AND began_at IS NOT NULL
+                        AND EXTRACT(EPOCH FROM (finished_at - began_at)) * 1000 > %s
                     ORDER BY execution_time_ms DESC
                     LIMIT 20;
                     """,
@@ -354,6 +357,33 @@ class MzClient:
                     "view_name": view_name,
                     "sql_query": sql_query
                 }
+
+    async def show_sources(self, schema: str = None, cluster: str = None) -> list[dict]:
+        """
+        Show sources, optionally filtered by schema and/or cluster.
+        
+        Args:
+            schema: Optional schema name to filter sources
+            cluster: Optional cluster name to filter sources
+            
+        Returns:
+            List of source records
+        """
+        pool = self.pool
+        sources = []
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                sql_parts = ["SHOW SOURCES"]
+                if schema:
+                    sql_parts.append(f"FROM {schema}")
+                if cluster:
+                    sql_parts.append(f"IN CLUSTER {cluster}")
+                sql_stmt = " ".join(sql_parts)
+                await cur.execute(sql_stmt)
+                async for row in cur:
+                    sources.append(row)
+        return sources
 
 
 def json_serial(obj):

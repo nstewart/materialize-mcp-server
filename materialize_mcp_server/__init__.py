@@ -21,6 +21,8 @@ Available Tools:
 7.  ``list_indexes`` - Lists indexes, optionally filtered by schema and/or cluster
 8.  ``create_index`` - Creates a default index on a source, view, or materialized view
 9.  ``drop_index`` - Drops an index with optional CASCADE support
+10. ``create_view`` - Creates a view with the specified name and SQL query
+11. ``show_sources`` - Shows sources, optionally filtered by schema and/or cluster
 """
 
 import asyncio
@@ -297,6 +299,26 @@ async def run():
             }
         )
         tools.append(create_view_tool)
+        # Add the show_sources tool
+        show_sources_tool = Tool(
+            name="show_sources",
+            description="Show sources in Materialize, optionally filtered by schema and/or cluster.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "schema": {
+                        "type": "string",
+                        "description": "Optional schema name to filter sources"
+                    },
+                    "cluster": {
+                        "type": "string",
+                        "description": "Optional cluster name to filter sources"
+                    }
+                },
+                "required": []
+            }
+        )
+        tools.append(show_sources_tool)
         return tools
 
     @server.call_tool()
@@ -425,6 +447,17 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing create_view: {str(e)}")
+                raise
+        if name == "show_sources":
+            try:
+                schema = arguments.get("schema")
+                cluster = arguments.get("cluster")
+                result = await server.request_context.lifespan_context.show_sources(schema, cluster)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"show_sources executed successfully, found {len(result)} sources")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing show_sources: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")
