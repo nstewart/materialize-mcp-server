@@ -23,7 +23,9 @@ The server supports two transports:
 """
 
 import asyncio
+import json
 import logging
+import sys
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Sequence, AsyncIterator
 
@@ -32,7 +34,7 @@ from mcp import stdio_server
 from mcp.server.sse import SseServerTransport
 from psycopg.rows import dict_row
 
-from .mz_client import MzClient, MissingTool
+from .mz_client import MzClient, MissingTool, json_serial
 from .config import load_config
 from mcp.server import Server, NotificationOptions
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
@@ -43,6 +45,7 @@ logger = logging.getLogger("mz_mcp_server")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stderr,
 )
 
 
@@ -52,12 +55,16 @@ def get_lifespan(cfg):
         logger.info(
             f"Initializing connection pool with min_size={cfg.pool_min_size}, max_size={cfg.pool_max_size}"
         )
+        logger.info(f"Connecting to Materialize at: {cfg.dsn}")
+        print(f"DEBUG: Starting lifespan function", file=sys.stderr)
 
         async def configure(conn):
             await conn.set_autocommit(True)
             logger.debug("Configured new database connection")
 
         try:
+            logger.debug("Creating connection pool...")
+            print(f"DEBUG: About to create connection pool", file=sys.stderr)
             async with AsyncConnectionPool(
                 conninfo=cfg.dsn,
                 min_size=cfg.pool_min_size,
@@ -81,25 +88,45 @@ def get_lifespan(cfg):
                     yield MzClient(pool=pool)
                 except Exception as e:
                     logger.error(f"Failed to initialize connection pool: {str(e)}")
+                    import traceback
+                    logger.error(f"Connection error traceback: {traceback.format_exc()}")
                     raise
                 finally:
                     logger.info("Closing connection pool...")
                     await pool.close()
         except Exception as e:
             logger.error(f"Failed to create connection pool: {str(e)}")
+            import traceback
+            logger.error(f"Pool creation error traceback: {traceback.format_exc()}")
             raise
 
     return lifespan
 
 
 async def run():
+    print("DEBUG: Starting run function", file=sys.stderr)
     cfg = load_config()
+    print(f"DEBUG: Config loaded: transport={cfg.transport}, dsn={cfg.dsn}", file=sys.stderr)
     server = Server("materialize_mcp_server", lifespan=get_lifespan(cfg))
+    print("DEBUG: Server created", file=sys.stderr)
 
     @server.list_tools()
     async def list_tools() -> List[Tool]:
         logger.debug("Listing available tools...")
         tools = await server.request_context.lifespan_context.list_tools()
+        
+        # Add the list_objects tool
+        list_objects_tool = Tool(
+            name="list_objects",
+            description="List all queryable objects in the Materialize database including sources, tables, views, materialized views, and indexed views",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        )
+        tools.append(list_objects_tool)
+        
         return tools
 
     @server.call_tool()
@@ -107,6 +134,19 @@ async def run():
         name: str, arguments: Dict[str, Any]
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         logger.debug(f"Calling tool '{name}' with arguments: {arguments}")
+        
+        # Handle the list_objects tool
+        if name == "list_objects":
+            try:
+                objects = await server.request_context.lifespan_context.list_objects()
+                result_text = json.dumps(objects, default=json_serial, indent=2)
+                logger.debug(f"list_objects executed successfully, found {len(objects)} objects")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing list_objects: {str(e)}")
+                raise
+        
+        # Handle regular indexed view tools
         try:
             result = await server.request_context.lifespan_context.call_tool(
                 name, arguments
@@ -124,65 +164,81 @@ async def run():
     options = server.create_initialization_options(
         notification_options=NotificationOptions(tools_changed=True)
     )
-    match cfg.transport:
-        case "stdio":
-            logger.info("Starting server in stdio mode...")
-            async with stdio_server() as (read_stream, write_stream):
+    if cfg.transport == "stdio":
+        logger.info("Starting server in stdio mode...")
+        logger.info(f"Server initialization options: {options}")
+        async with stdio_server() as (read_stream, write_stream):
+            logger.info("stdio transport established, starting server...")
+            try:
                 await server.run(
                     read_stream,
                     write_stream,
                     options,
                 )
-        case "sse":
-            logger.info(f"Starting SSE server on {cfg.host}:{cfg.port}...")
-            from starlette.applications import Starlette
-            from starlette.routing import Mount, Route
+            except Exception as e:
+                logger.error(f"Error during server.run: {str(e)}")
+                import traceback
+                logger.error(f"Server run error traceback: {traceback.format_exc()}")
+                raise
+    elif cfg.transport == "sse":
+        logger.info(f"Starting SSE server on {cfg.host}:{cfg.port}...")
+        from starlette.applications import Starlette
+        from starlette.routing import Mount, Route
 
-            sse = SseServerTransport("/messages/")
+        sse = SseServerTransport("/messages/")
 
-            async def handle_sse(request):
-                logger.debug(
-                    f"New SSE connection from {request.client.host if request.client else 'unknown'}"
-                )
-                try:
-                    async with sse.connect_sse(
-                        request.scope, request.receive, request._send
-                    ) as streams:
-                        await server.run(
-                            streams[0],
-                            streams[1],
-                            options,
-                        )
-                except Exception as e:
-                    logger.error(f"Error handling SSE connection: {str(e)}")
-                    raise
-
-            starlette_app = Starlette(
-                routes=[
-                    Route("/sse", endpoint=handle_sse),
-                    Mount("/messages/", app=sse.handle_post_message),
-                ],
+        async def handle_sse(request):
+            logger.debug(
+                f"New SSE connection from {request.client.host if request.client else 'unknown'}"
             )
+            try:
+                async with sse.connect_sse(
+                    request.scope, request.receive, request._send
+                ) as streams:
+                    await server.run(
+                        streams[0],
+                        streams[1],
+                        options,
+                    )
+            except Exception as e:
+                logger.error(f"Error handling SSE connection: {str(e)}")
+                raise
 
-            config = uvicorn.Config(
-                starlette_app,
-                host=cfg.host,
-                port=cfg.port,
-                log_level=cfg.log_level.upper(),
-            )
-            server = uvicorn.Server(config)
-            await server.serve()
-        case t:
-            raise ValueError(f"Unknown transport: {t}")
+        starlette_app = Starlette(
+            routes=[
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages/", app=sse.handle_post_message),
+            ],
+        )
+
+        config = uvicorn.Config(
+            starlette_app,
+            host=cfg.host,
+            port=cfg.port,
+            log_level=cfg.log_level.upper(),
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+    else:
+        raise ValueError(f"Unknown transport: {cfg.transport}")
 
 
 def main():
     """Synchronous wrapper for the async main function."""
     try:
+        print("DEBUG: Starting main function", file=sys.stderr)
         logger.info("Starting Materialize MCP Server...")
+        print("DEBUG: About to call asyncio.run(run())", file=sys.stderr)
         asyncio.run(run())
     except KeyboardInterrupt:
         logger.info("Shutting down …")
+    except Exception as e:
+        logger.error(f"Fatal error in main: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        print(f"DEBUG: Exception in main: {str(e)}", file=sys.stderr)
+        print(f"DEBUG: Traceback: {traceback.format_exc()}", file=sys.stderr)
+        raise
 
 
 if __name__ == "__main__":

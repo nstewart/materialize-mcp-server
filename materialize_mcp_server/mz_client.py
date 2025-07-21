@@ -67,6 +67,33 @@ TOOL_QUERY = base = sql.SQL(
         """
 )
 
+OBJECTS_QUERY = sql.SQL(
+    """
+    SELECT 
+        op.database,
+        op.schema,
+        op.name AS object_name,
+        op.object_type,
+        cts.comment AS description,
+        CASE 
+            WHEN op.object_type = 'source' THEN 'source'
+            WHEN op.object_type = 'table' THEN 'table'
+            WHEN op.object_type = 'view' THEN 'view'
+            WHEN op.object_type = 'materialized-view' THEN 'materialized_view'
+            WHEN op.object_type = 'index' THEN 'indexed_view'
+            ELSE op.object_type
+        END AS object_category
+    FROM mz_internal.mz_show_my_object_privileges op
+    JOIN mz_objects o ON op.name = o.name AND op.object_type = o.type
+    JOIN mz_schemas s ON s.name = op.schema AND s.id = o.schema_id
+    JOIN mz_databases d ON d.name = op.database AND d.id = s.database_id
+    LEFT JOIN mz_internal.mz_comments cts ON cts.id = o.id AND cts.object_sub_id IS NULL
+    WHERE op.privilege_type = 'SELECT'
+      AND op.object_type IN ('source', 'table', 'view', 'materialized-view', 'index')
+    ORDER BY op.database, op.schema, op.object_type, op.name
+    """
+)
+
 
 class MissingTool(Exception):
     def __init__(self, message):
@@ -101,6 +128,22 @@ class MzClient:
                         )
                     )
         return tools
+
+    async def list_objects(self) -> List[Dict[str, Any]]:
+        """
+        Return the catalog of all queryable objects.
+
+        This includes sources, tables, views, materialized views, and indexes.
+        """
+        pool = self.pool
+        objects: List[Dict[str, Any]] = []
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(OBJECTS_QUERY)
+                async for row in cur:
+                    objects.append(row)
+        return objects
 
     async def call_tool(
         self, name: str, arguments: Dict[str, Any]
@@ -154,13 +197,12 @@ class MzClient:
                     {k: v for k, v in dict(zip(columns, row)).items()} for row in rows
                 ]
 
-                match len(result):
-                    case 0:
-                        return []
-                    case 1:
-                        text = json.dumps(result[0], default=json_serial)
-                    case _:
-                        text = json.dumps(result, default=json_serial)
+                if len(result) == 0:
+                    return []
+                elif len(result) == 1:
+                    text = json.dumps(result[0], default=json_serial)
+                else:
+                    text = json.dumps(result, default=json_serial)
 
                 return [TextContent(text=text, type="text")]
 
