@@ -233,6 +233,30 @@ async def run():
             }
         )
         tools.append(list_indexes_tool)
+        # Add the create_index tool
+        create_index_tool = Tool(
+            name="create_index",
+            description="Create a default index on a source, view, or materialized view in a specified cluster.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "index_name": {
+                        "type": "string",
+                        "description": "Name of the index to create"
+                    },
+                    "cluster_name": {
+                        "type": "string",
+                        "description": "Name of the cluster to maintain this index"
+                    },
+                    "object_name": {
+                        "type": "string",
+                        "description": "Name of the source, view, or materialized view to index"
+                    }
+                },
+                "required": ["index_name", "cluster_name", "object_name"]
+            }
+        )
+        tools.append(create_index_tool)
         return tools
 
     @server.call_tool()
@@ -322,6 +346,20 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing list_indexes: {str(e)}")
+                raise
+        if name == "create_index":
+            try:
+                index_name = arguments.get("index_name")
+                cluster_name = arguments.get("cluster_name")
+                object_name = arguments.get("object_name")
+                if not index_name or not cluster_name or not object_name:
+                    raise ValueError("index_name, cluster_name, and object_name are required")
+                result = await server.request_context.lifespan_context.create_index(index_name, cluster_name, object_name)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"create_index executed successfully: {result['message']}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing create_index: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")
