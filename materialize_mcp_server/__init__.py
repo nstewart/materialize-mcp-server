@@ -197,6 +197,22 @@ async def run():
             }
         )
         tools.append(list_slow_queries_tool)
+        # Add the list_schemas tool
+        list_schemas_tool = Tool(
+            name="list_schemas",
+            description="List schemas in Materialize, optionally filtered by database name.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "database": {
+                        "type": "string",
+                        "description": "Optional database name to filter schemas"
+                    }
+                },
+                "required": []
+            }
+        )
+        tools.append(list_schemas_tool)
         # Add the list_indexes tool
         list_indexes_tool = Tool(
             name="list_indexes",
@@ -285,6 +301,16 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing list_slow_queries: {str(e)}")
+                raise
+        if name == "list_schemas":
+            try:
+                database = arguments.get("database")
+                result = await server.request_context.lifespan_context.list_schemas(database)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"list_schemas executed successfully, found {len(result)} schemas")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing list_schemas: {str(e)}")
                 raise
         if name == "list_indexes":
             try:

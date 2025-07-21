@@ -249,6 +249,28 @@ class MzClient:
                     indexes.append(row)
         return indexes
 
+    async def list_schemas(self, database: str = None) -> list[dict]:
+        """
+        List schemas, optionally filtered by database name.
+        Args:
+            database: Optional database name to filter schemas
+        Returns:
+            List of schema records
+        """
+        pool = self.pool
+        schemas = []
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                if database:
+                    sql_stmt = f"SHOW SCHEMAS FROM {database}"
+                else:
+                    sql_stmt = "SHOW SCHEMAS"
+                await cur.execute(sql_stmt)
+                async for row in cur:
+                    schemas.append(row)
+        return schemas
+
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
