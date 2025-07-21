@@ -160,6 +160,34 @@ async def run():
         )
         tools.append(create_cluster_tool)
         
+        # Add the run_sql_transaction tool
+        run_sql_transaction_tool = Tool(
+            name="run_sql_transaction",
+            description="Execute one or more SQL statements within a single transaction on a specified cluster.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cluster_name": {
+                        "type": "string",
+                        "description": "Name of the cluster to execute the transaction on"
+                    },
+                    "sql_statements": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "List of SQL statements to execute within the transaction"
+                    },
+                    "isolation_level": {
+                        "type": "string",
+                        "description": "Optional isolation level to set (e.g., 'strict serializable', 'serializable', etc.)"
+                    }
+                },
+                "required": ["cluster_name", "sql_statements"]
+            }
+        )
+        tools.append(run_sql_transaction_tool)
+        
         return tools
 
     @server.call_tool()
@@ -204,6 +232,29 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing create_cluster: {str(e)}")
+                raise
+        
+        # Handle the run_sql_transaction tool
+        if name == "run_sql_transaction":
+            try:
+                cluster_name = arguments.get("cluster_name")
+                sql_statements = arguments.get("sql_statements")
+                isolation_level = arguments.get("isolation_level")
+                
+                if not cluster_name or not sql_statements:
+                    raise ValueError("Both cluster_name and sql_statements are required")
+                
+                if not isinstance(sql_statements, list):
+                    raise ValueError("sql_statements must be a list of strings")
+                
+                result = await server.request_context.lifespan_context.run_sql_transaction(
+                    cluster_name, sql_statements, isolation_level
+                )
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"run_sql_transaction executed successfully: {result['message']}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing run_sql_transaction: {str(e)}")
                 raise
         
         # Handle regular indexed view tools

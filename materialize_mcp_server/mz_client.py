@@ -247,6 +247,87 @@ class MzClient:
 
                 return [TextContent(text=text, type="text")]
 
+    async def run_sql_transaction(
+        self, 
+        cluster_name: str, 
+        sql_statements: List[str], 
+        isolation_level: str = None
+    ) -> Dict[str, Any]:
+        """
+        Execute one or more SQL statements within a single transaction.
+        
+        Args:
+            cluster_name: Name of the cluster to execute the transaction on
+            sql_statements: List of SQL statements to execute
+            isolation_level: Optional isolation level to set (e.g., 'strict serializable', 'serializable', etc.)
+            
+        Returns:
+            Dictionary with the results of the transaction execution
+        """
+        pool = self.pool
+        results = []
+        
+        async with pool.connection() as conn:
+            await conn.set_autocommit(False)  # Start transaction mode
+            try:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    # Set the cluster
+                    await cur.execute(f"SET cluster = '{cluster_name}'")
+                    
+                    # Set isolation level if provided
+                    if isolation_level:
+                        await cur.execute(f"SET transaction_isolation = '{isolation_level}'")
+                    
+                    # Execute each SQL statement
+                    for i, sql in enumerate(sql_statements):
+                        if not sql.strip():
+                            continue
+                            
+                        await cur.execute(sql)
+                        
+                        # Try to fetch results if it's a SELECT statement
+                        try:
+                            rows = await cur.fetchall()
+                            columns = [desc.name for desc in cur.description] if cur.description else []
+                            
+                            statement_result = {
+                                "statement_index": i,
+                                "sql": sql,
+                                "row_count": len(rows),
+                                "columns": columns,
+                                "rows": [dict(zip(columns, row)) for row in rows] if rows else []
+                            }
+                        except Exception:
+                            # Not a SELECT statement or no results
+                            statement_result = {
+                                "statement_index": i,
+                                "sql": sql,
+                                "row_count": 0,
+                                "columns": [],
+                                "rows": []
+                            }
+                        
+                        results.append(statement_result)
+                    
+                    # Commit the transaction
+                    await conn.commit()
+                    
+                    return {
+                        "status": "success",
+                        "message": f"Transaction executed successfully on cluster '{cluster_name}'",
+                        "cluster_name": cluster_name,
+                        "isolation_level": isolation_level,
+                        "statements_executed": len(sql_statements),
+                        "results": results
+                    }
+                    
+            except Exception as e:
+                # Rollback on error
+                await conn.rollback()
+                raise e
+            finally:
+                await conn.set_autocommit(True)  # Reset to autocommit mode
+
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
