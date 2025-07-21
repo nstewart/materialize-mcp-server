@@ -244,10 +244,6 @@ async def run():
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "index_name": {
-                        "type": "string",
-                        "description": "Name of the index to create"
-                    },
                     "cluster_name": {
                         "type": "string",
                         "description": "Name of the cluster to maintain this index"
@@ -257,7 +253,7 @@ async def run():
                         "description": "Name of the source, view, or materialized view to index"
                     }
                 },
-                "required": ["index_name", "cluster_name", "object_name"]
+                "required": ["cluster_name", "object_name"]
             }
         )
         tools.append(create_index_tool)
@@ -281,6 +277,26 @@ async def run():
             }
         )
         tools.append(drop_index_tool)
+        # Add the create_view tool
+        create_view_tool = Tool(
+            name="create_view",
+            description="Create a view with the specified name and SQL query.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "view_name": {
+                        "type": "string",
+                        "description": "Name of the view to create"
+                    },
+                    "sql_query": {
+                        "type": "string",
+                        "description": "The SELECT statement to embed in the view"
+                    }
+                },
+                "required": ["view_name", "sql_query"]
+            }
+        )
+        tools.append(create_view_tool)
         return tools
 
     @server.call_tool()
@@ -373,12 +389,11 @@ async def run():
                 raise
         if name == "create_index":
             try:
-                index_name = arguments.get("index_name")
                 cluster_name = arguments.get("cluster_name")
                 object_name = arguments.get("object_name")
-                if not index_name or not cluster_name or not object_name:
-                    raise ValueError("index_name, cluster_name, and object_name are required")
-                result = await server.request_context.lifespan_context.create_index(index_name, cluster_name, object_name)
+                if not cluster_name or not object_name:
+                    raise ValueError("cluster_name and object_name are required")
+                result = await server.request_context.lifespan_context.create_index(cluster_name, object_name)
                 result_text = json.dumps(result, default=json_serial, indent=2)
                 logger.debug(f"create_index executed successfully: {result['message']}")
                 return [TextContent(text=result_text, type="text")]
@@ -397,6 +412,19 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing drop_index: {str(e)}")
+                raise
+        if name == "create_view":
+            try:
+                view_name = arguments.get("view_name")
+                sql_query = arguments.get("sql_query")
+                if not view_name or not sql_query:
+                    raise ValueError("view_name and sql_query are required")
+                result = await server.request_context.lifespan_context.create_view(view_name, sql_query)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"create_view executed successfully: {result['message']}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing create_view: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")

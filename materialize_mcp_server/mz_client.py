@@ -271,12 +271,11 @@ class MzClient:
                     schemas.append(row)
         return schemas
 
-    async def create_index(self, index_name: str, cluster_name: str, object_name: str) -> Dict[str, Any]:
+    async def create_index(self, cluster_name: str, object_name: str) -> Dict[str, Any]:
         """
         Create a default index on a source, view, or materialized view.
         
         Args:
-            index_name: Name of the index to create
             cluster_name: Name of the cluster to maintain this index
             object_name: Name of the source, view, or materialized view to index
             
@@ -287,15 +286,14 @@ class MzClient:
         async with pool.connection() as conn:
             await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Execute CREATE INDEX statement
-                create_sql = f"CREATE INDEX {index_name} ON {object_name} IN CLUSTER {cluster_name}"
+                # Execute CREATE DEFAULT INDEX statement
+                create_sql = f"CREATE DEFAULT INDEX IN CLUSTER {cluster_name} ON {object_name}"
                 await cur.execute(create_sql)
                 
                 # Return success result
                 return {
                     "status": "success",
-                    "message": f"Index '{index_name}' created successfully on '{object_name}' in cluster '{cluster_name}'",
-                    "index_name": index_name,
+                    "message": f"Default index created successfully on '{object_name}' in cluster '{cluster_name}'",
                     "object_name": object_name,
                     "cluster_name": cluster_name
                 }
@@ -328,6 +326,33 @@ class MzClient:
                     "message": f"Index '{index_name}' dropped successfully",
                     "index_name": index_name,
                     "cascade": cascade
+                }
+
+    async def create_view(self, view_name: str, sql_query: str) -> Dict[str, Any]:
+        """
+        Create a view with the specified name and SQL query.
+        
+        Args:
+            view_name: Name of the view to create
+            sql_query: The SELECT statement to embed in the view
+            
+        Returns:
+            Dictionary with the result of the view creation
+        """
+        pool = self.pool
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Execute CREATE VIEW statement
+                create_sql = f"CREATE VIEW {view_name} AS {sql_query}"
+                await cur.execute(create_sql)
+                
+                # Return success result
+                return {
+                    "status": "success",
+                    "message": f"View '{view_name}' created successfully",
+                    "view_name": view_name,
+                    "sql_query": sql_query
                 }
 
 
