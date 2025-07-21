@@ -450,6 +450,71 @@ class MzClient:
                     "password_secret": password_secret
                 }
 
+    async def create_postgres_source(
+        self, 
+        source_name: str,
+        cluster_name: str, 
+        connection_name: str, 
+        publication_name: str,
+        for_all_tables: bool = True,
+        for_schemas: List[str] = None,
+        for_tables: List[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a PostgreSQL source in Materialize.
+        
+        Args:
+            source_name: Name of the source to create
+            cluster_name: Name of the cluster to create the source in
+            connection_name: Name of the PostgreSQL connection to use
+            publication_name: Name of the PostgreSQL publication
+            for_all_tables: Whether to ingest all tables from the publication (default: True)
+            for_schemas: Optional list of schema names to ingest (mutually exclusive with for_all_tables)
+            for_tables: Optional list of table names to ingest (mutually exclusive with for_all_tables)
+            
+        Returns:
+            Dictionary with the result of the source creation
+        """
+        pool = self.pool
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Build the CREATE SOURCE statement
+                create_sql_parts = [
+                    f"CREATE SOURCE {source_name}",
+                    f"IN CLUSTER {cluster_name}",
+                    f"FROM POSTGRES CONNECTION {connection_name} (PUBLICATION '{publication_name}')"
+                ]
+                
+                # Add the FOR clause based on parameters
+                if for_all_tables:
+                    create_sql_parts.append("FOR ALL TABLES")
+                elif for_schemas:
+                    schemas_str = ", ".join(f"'{schema}'" for schema in for_schemas)
+                    create_sql_parts.append(f"FOR SCHEMAS ({schemas_str})")
+                elif for_tables:
+                    tables_str = ", ".join(f"'{table}'" for table in for_tables)
+                    create_sql_parts.append(f"FOR TABLES ({tables_str})")
+                else:
+                    # Default to FOR ALL TABLES if no specific option is provided
+                    create_sql_parts.append("FOR ALL TABLES")
+                
+                create_sql = " ".join(create_sql_parts)
+                await cur.execute(create_sql)
+                
+                # Return success result
+                return {
+                    "status": "success",
+                    "message": f"PostgreSQL source '{source_name}' created successfully in cluster '{cluster_name}'",
+                    "source_name": source_name,
+                    "cluster_name": cluster_name,
+                    "connection_name": connection_name,
+                    "publication_name": publication_name,
+                    "for_all_tables": for_all_tables,
+                    "for_schemas": for_schemas,
+                    "for_tables": for_tables
+                }
+
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""

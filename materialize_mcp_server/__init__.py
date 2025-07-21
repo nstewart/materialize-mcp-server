@@ -24,6 +24,7 @@ Available Tools:
 10. ``create_view`` - Creates a view with the specified name and SQL query
 11. ``show_sources`` - Shows sources, optionally filtered by schema and/or cluster
 12. ``create_postgres_connection`` - Creates a PostgreSQL connection in Materialize
+13. ``create_postgres_source`` - Creates a PostgreSQL source using an existing connection and publication
 """
 
 import asyncio
@@ -360,6 +361,52 @@ async def run():
             }
         )
         tools.append(create_postgres_connection_tool)
+        # Add the create_postgres_source tool
+        create_postgres_source_tool = Tool(
+            name="create_postgres_source",
+            description="Create a PostgreSQL source in Materialize using an existing connection and publication.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_name": {
+                        "type": "string",
+                        "description": "Name of the source to create"
+                    },
+                    "cluster_name": {
+                        "type": "string",
+                        "description": "Name of the cluster to create the source in"
+                    },
+                    "connection_name": {
+                        "type": "string",
+                        "description": "Name of the PostgreSQL connection to use"
+                    },
+                    "publication_name": {
+                        "type": "string",
+                        "description": "Name of the PostgreSQL publication"
+                    },
+                    "for_all_tables": {
+                        "type": "boolean",
+                        "description": "Whether to ingest all tables from the publication (default: true)"
+                    },
+                    "for_schemas": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional list of schema names to ingest (mutually exclusive with for_all_tables)"
+                    },
+                    "for_tables": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional list of table names to ingest (mutually exclusive with for_all_tables)"
+                    }
+                },
+                "required": ["source_name", "cluster_name", "connection_name", "publication_name"]
+            }
+        )
+        tools.append(create_postgres_source_tool)
         return tools
 
     @server.call_tool()
@@ -521,6 +568,29 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing create_postgres_connection: {str(e)}")
+                raise
+        if name == "create_postgres_source":
+            try:
+                source_name = arguments.get("source_name")
+                cluster_name = arguments.get("cluster_name")
+                connection_name = arguments.get("connection_name")
+                publication_name = arguments.get("publication_name")
+                for_all_tables = arguments.get("for_all_tables", True)
+                for_schemas = arguments.get("for_schemas")
+                for_tables = arguments.get("for_tables")
+                
+                if not source_name or not cluster_name or not connection_name or not publication_name:
+                    raise ValueError("source_name, cluster_name, connection_name, and publication_name are required")
+                
+                result = await server.request_context.lifespan_context.create_postgres_source(
+                    source_name, cluster_name, connection_name, publication_name, 
+                    for_all_tables, for_schemas, for_tables
+                )
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"create_postgres_source executed successfully: {result['message']}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing create_postgres_source: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")
