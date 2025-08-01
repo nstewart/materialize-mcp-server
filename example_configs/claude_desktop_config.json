@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "materialize": {
+      "command": "/opt/homebrew/bin/uv",
+      "args": [
+        "run",
+        "--project",
+        "/Users/<name>/Projects/materialize-mcp-server",
+        "materialize-mcp-server"
+      ],
+      "env": {
+        "PGHOST": "127.0.0.1",
+        "PGPORT": "6875",
+        "PGUSER": "materialize",
+        "PGDATABASE": "materialize",
+        "PATH": "/opt/homebrew/bin:${PATH}"
+      }
+    }
+  }
+}
+
