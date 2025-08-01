@@ -10,6 +10,8 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 import json
 
+from .validation import validate_and_sanitize_args, ValidationError
+
 
 
 OBJECTS_QUERY = sql.SQL(
@@ -90,12 +92,21 @@ class MzClient:
         Returns:
             Dictionary with the result of the cluster creation
         """
+        # Validate and sanitize inputs
+        args = validate_and_sanitize_args("create_cluster", {
+            "cluster_name": cluster_name,
+            "size": size
+        })
+        
         pool = self.pool
         async with pool.connection() as conn:
             await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Execute CREATE CLUSTER statement
-                create_sql = f"CREATE CLUSTER {cluster_name} (SIZE = '{size}')"
+                # Execute CREATE CLUSTER statement with proper SQL construction
+                create_sql = sql.SQL("CREATE CLUSTER {} (SIZE = {})").format(
+                    sql.Identifier(cluster_name),  # Use original name for identifier
+                    sql.Literal(size)
+                )
                 await cur.execute(create_sql)
                 
                 # Return success result
@@ -123,6 +134,13 @@ class MzClient:
         Returns:
             Dictionary with the results of the transaction execution
         """
+        # Validate and sanitize inputs
+        args = validate_and_sanitize_args("run_sql_transaction", {
+            "cluster_name": cluster_name,
+            "sql_statements": sql_statements,
+            "isolation_level": isolation_level
+        })
+        
         pool = self.pool
         results = []
         
@@ -130,19 +148,23 @@ class MzClient:
             await conn.set_autocommit(False)  # Start transaction mode
             try:
                 async with conn.cursor(row_factory=dict_row) as cur:
-                    # Set the cluster
-                    await cur.execute(f"SET cluster = '{cluster_name}'")
+                    # Set the cluster using proper parameterization
+                    await cur.execute(
+                        sql.SQL("SET cluster = {}").format(sql.Identifier(cluster_name))
+                    )
                     
                     # Set isolation level if provided
                     if isolation_level:
-                        await cur.execute(f"SET transaction_isolation = '{isolation_level}'")
+                        await cur.execute(
+                            sql.SQL("SET transaction_isolation = {}").format(sql.Literal(isolation_level))
+                        )
                     
                     # Execute each SQL statement
-                    for i, sql in enumerate(sql_statements):
-                        if not sql.strip():
+                    for i, sql_stmt in enumerate(sql_statements):
+                        if not sql_stmt.strip():
                             continue
                             
-                        await cur.execute(sql)
+                        await cur.execute(sql_stmt)
                         
                         # Try to fetch results if it's a SELECT statement
                         try:
@@ -151,7 +173,7 @@ class MzClient:
                             
                             statement_result = {
                                 "statement_index": i,
-                                "sql": sql,
+                                "sql": sql_stmt,
                                 "row_count": len(rows),
                                 "columns": columns,
                                 "rows": rows if rows else []
@@ -160,7 +182,7 @@ class MzClient:
                             # Not a SELECT statement or no results
                             statement_result = {
                                 "statement_index": i,
-                                "sql": sql,
+                                "sql": sql_stmt,
                                 "row_count": 0,
                                 "columns": [],
                                 "rows": []
@@ -250,8 +272,11 @@ class MzClient:
         async with pool.connection() as conn:
             await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Execute CREATE DEFAULT INDEX statement
-                create_sql = f"CREATE DEFAULT INDEX IN CLUSTER {cluster_name} ON {object_name}"
+                # Execute CREATE DEFAULT INDEX statement with proper SQL construction
+                create_sql = sql.SQL("CREATE DEFAULT INDEX IN CLUSTER {} ON {}").format(
+                    sql.Identifier(cluster_name),
+                    sql.Identifier(object_name)
+                )
                 await cur.execute(create_sql)
                 
                 # Return success result
@@ -277,11 +302,15 @@ class MzClient:
         async with pool.connection() as conn:
             await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Execute DROP INDEX statement
+                # Execute DROP INDEX statement with proper SQL construction
                 if cascade:
-                    drop_sql = f"DROP INDEX {index_name} CASCADE"
+                    drop_sql = sql.SQL("DROP INDEX {} CASCADE").format(
+                        sql.Identifier(index_name)
+                    )
                 else:
-                    drop_sql = f"DROP INDEX {index_name}"
+                    drop_sql = sql.SQL("DROP INDEX {}").format(
+                        sql.Identifier(index_name)
+                    )
                 await cur.execute(drop_sql)
                 
                 # Return success result
@@ -307,8 +336,12 @@ class MzClient:
         async with pool.connection() as conn:
             await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Execute CREATE VIEW statement
-                create_sql = f"CREATE VIEW {view_name} AS {sql_query}"
+                # Execute CREATE VIEW statement with proper SQL construction
+                # Note: sql_query cannot be parameterized as it's a SQL statement, not a value
+                create_sql = sql.SQL("CREATE VIEW {} AS {}").format(
+                    sql.Identifier(view_name),
+                    sql.SQL(sql_query)  # Treat as raw SQL
+                )
                 await cur.execute(create_sql)
                 
                 # Return success result
@@ -340,8 +373,12 @@ class MzClient:
         async with pool.connection() as conn:
             await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Execute CREATE MATERIALIZED VIEW statement
-                create_sql = f"CREATE MATERIALIZED VIEW {view_name} IN CLUSTER {cluster_name} AS {sql_query}"
+                # Execute CREATE MATERIALIZED VIEW statement with proper SQL construction
+                create_sql = sql.SQL("CREATE MATERIALIZED VIEW {} IN CLUSTER {} AS {}").format(
+                    sql.Identifier(view_name),
+                    sql.Identifier(cluster_name),
+                    sql.SQL(sql_query)  # Treat as raw SQL
+                )
                 await cur.execute(create_sql)
                 
                 # Return success result
@@ -474,27 +511,27 @@ class MzClient:
         async with pool.connection() as conn:
             await conn.set_autocommit(True)
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Build the CREATE SOURCE statement
-                create_sql_parts = [
-                    f"CREATE SOURCE {source_name}",
-                    f"IN CLUSTER {cluster_name}",
-                    f"FROM POSTGRES CONNECTION {connection_name} (PUBLICATION '{publication_name}')"
-                ]
+                # Build the CREATE SOURCE statement with proper SQL construction
+                base_sql = sql.SQL("CREATE SOURCE {} IN CLUSTER {} FROM POSTGRES CONNECTION {} (PUBLICATION {})").format(
+                    sql.Identifier(source_name),
+                    sql.Identifier(cluster_name),
+                    sql.Identifier(connection_name),
+                    sql.Literal(publication_name)
+                )
                 
                 # Add the FOR clause based on parameters
                 if for_all_tables:
-                    create_sql_parts.append("FOR ALL TABLES")
+                    create_sql = sql.SQL("{} FOR ALL TABLES").format(base_sql)
                 elif for_schemas:
-                    schemas_str = ", ".join(f"'{schema}'" for schema in for_schemas)
-                    create_sql_parts.append(f"FOR SCHEMAS ({schemas_str})")
+                    schema_list = sql.SQL(", ").join(sql.Literal(schema) for schema in for_schemas)
+                    create_sql = sql.SQL("{} FOR SCHEMAS ({})").format(base_sql, schema_list)
                 elif for_tables:
-                    tables_str = ", ".join(f"'{table}'" for table in for_tables)
-                    create_sql_parts.append(f"FOR TABLES ({tables_str})")
+                    table_list = sql.SQL(", ").join(sql.Literal(table) for table in for_tables)
+                    create_sql = sql.SQL("{} FOR TABLES ({})").format(base_sql, table_list)
                 else:
                     # Default to FOR ALL TABLES if no specific option is provided
-                    create_sql_parts.append("FOR ALL TABLES")
+                    create_sql = sql.SQL("{} FOR ALL TABLES").format(base_sql)
                 
-                create_sql = " ".join(create_sql_parts)
                 await cur.execute(create_sql)
                 
                 # Return success result

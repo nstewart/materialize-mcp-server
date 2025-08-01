@@ -35,6 +35,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Sequence, AsyncIterator
 
@@ -44,28 +45,30 @@ from mcp.server.sse import SseServerTransport
 from psycopg.rows import dict_row
 
 from .mz_client import MzClient, MissingTool, json_serial
-from .config import load_config
+from .config import load_config, ConfigurationError
+from .logging_config import setup_structured_logging, set_correlation_id, generate_correlation_id, log_tool_call, log_tool_result
+from .observability import get_metrics_collector, HealthChecker, track_tool_call
+from .validation import ValidationError
 from mcp.server import Server, NotificationOptions
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 from psycopg_pool import AsyncConnectionPool
 
 
-logger = logging.getLogger("mz_mcp_server")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stderr,
-)
+# Global logger - will be configured properly in main()
+logger = None
 
 
-def get_lifespan(cfg):
+def get_lifespan(cfg, metrics_collector, health_checker):
     @asynccontextmanager
     async def lifespan(server) -> AsyncIterator[MzClient]:
         logger.info(
-            f"Initializing connection pool with min_size={cfg.pool_min_size}, max_size={cfg.pool_max_size}"
+            "Initializing connection pool",
+            extra={
+                "pool_min_size": cfg.pool_min_size,
+                "pool_max_size": cfg.pool_max_size,
+                "dsn_host": cfg.dsn.split('@')[1].split('/')[0] if '@' in cfg.dsn else "unknown"
+            }
         )
-        logger.info(f"Connecting to Materialize at: {cfg.dsn}")
-        print(f"DEBUG: Starting lifespan function", file=sys.stderr)
 
         async def configure(conn):
             await conn.set_autocommit(True)
@@ -113,11 +116,41 @@ def get_lifespan(cfg):
 
 
 async def run():
-    print("DEBUG: Starting run function", file=sys.stderr)
-    cfg = load_config()
-    print(f"DEBUG: Config loaded: transport={cfg.transport}, dsn={cfg.dsn}", file=sys.stderr)
-    server = Server("materialize_mcp_server", lifespan=get_lifespan(cfg))
-    print("DEBUG: Server created", file=sys.stderr)
+    global logger
+    
+    try:
+        # Load and validate configuration
+        cfg = load_config()
+    except (ValidationError, ConfigurationError) as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error loading configuration: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Setup structured logging
+    logger = setup_structured_logging(
+        service_name=cfg.service_name,
+        version=cfg.version,
+        log_level=cfg.log_level,
+        enable_json=cfg.enable_json_logging
+    )
+    
+    # Initialize observability
+    metrics_collector = get_metrics_collector()
+    health_checker = HealthChecker(None, logger)  # pool will be set in lifespan
+    
+    logger.info(
+        "Starting Materialize MCP Server",
+        extra={
+            "version": cfg.version,
+            "transport": cfg.transport,
+            "log_level": cfg.log_level,
+            "json_logging": cfg.enable_json_logging
+        }
+    )
+    
+    server = Server(cfg.service_name, lifespan=get_lifespan(cfg, metrics_collector, health_checker))
 
     @server.list_tools()
     async def list_tools() -> List[Tool]:
@@ -809,20 +842,33 @@ async def run():
 
 def main():
     """Synchronous wrapper for the async main function."""
+    global logger
+    
     try:
-        print("DEBUG: Starting main function", file=sys.stderr)
-        logger.info("Starting Materialize MCP Server...")
-        print("DEBUG: About to call asyncio.run(run())", file=sys.stderr)
         asyncio.run(run())
     except KeyboardInterrupt:
-        logger.info("Shutting down …")
+        if logger:
+            logger.info("Received shutdown signal, stopping server gracefully")
+        else:
+            print("Received shutdown signal, stopping server", file=sys.stderr)
+    except (ValidationError, ConfigurationError) as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        logger.error(f"Fatal error in main: {str(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        print(f"DEBUG: Exception in main: {str(e)}", file=sys.stderr)
-        print(f"DEBUG: Traceback: {traceback.format_exc()}", file=sys.stderr)
-        raise
+        if logger:
+            logger.error(
+                "Fatal error in main",
+                extra={
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                },
+                exc_info=True
+            )
+        else:
+            print(f"Fatal error: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
