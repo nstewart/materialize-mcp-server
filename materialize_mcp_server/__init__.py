@@ -29,6 +29,7 @@ Available Tools:
 15. ``list_materialized_views`` - Lists materialized views in Materialize, optionally filtered by schema and/or cluster
 16. ``monitor_data_freshness`` - Monitors data freshness with dependency-aware analysis, showing lagging objects and their dependency chains to identify root causes
 17. ``monitor_source_lag`` - Monitors replication lag for streaming sources and their impact on downstream objects
+18. ``get_object_freshness_diagnostics`` - Get detailed freshness diagnostics for a specific object, showing its freshness and complete dependency chain
 """
 
 import asyncio
@@ -499,6 +500,26 @@ async def run():
             }
         )
         tools.append(monitor_source_lag_tool)
+        # Add the get_object_freshness_diagnostics tool
+        get_object_freshness_diagnostics_tool = Tool(
+            name="get_object_freshness_diagnostics",
+            description="Get detailed freshness diagnostics for a specific object, showing its freshness and the complete dependency chain with freshness information for each dependency.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_name": {
+                        "type": "string",
+                        "description": "Name of the object to analyze"
+                    },
+                    "schema": {
+                        "type": "string",
+                        "description": "Optional schema name (default: 'public')"
+                    }
+                },
+                "required": ["object_name"]
+            }
+        )
+        tools.append(get_object_freshness_diagnostics_tool)
         return tools
 
     @server.call_tool()
@@ -735,6 +756,19 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing monitor_source_lag: {str(e)}")
+                raise
+        if name == "get_object_freshness_diagnostics":
+            try:
+                object_name = arguments.get("object_name")
+                schema = arguments.get("schema", "public")
+                if not object_name:
+                    raise ValueError("object_name is required")
+                result = await server.request_context.lifespan_context.get_object_freshness_diagnostics(object_name, schema)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"get_object_freshness_diagnostics executed successfully for {object_name}")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing get_object_freshness_diagnostics: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")
