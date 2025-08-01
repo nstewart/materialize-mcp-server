@@ -6,11 +6,72 @@ The server exposes a comprehensive set of static tools for database operations i
 
 ## Installation
 
-The package can be installed locally. We recommend using [uv](https://docs.astral.sh/uv/) as your build tool.
+### Using with Claude Code
+
+Claude Code automatically starts and manages MCP servers for you. You don't need to run the server manually - just configure it and Claude Code will handle the rest.
+
+#### Quick Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/MaterializeInc/materialize-mcp-server
+cd materialize-mcp-server
+```
+
+2. Add the server configuration using Claude Code's CLI:
+```bash
+# For local Materialize instance
+claude mcp add materialize-local --command "uv" --args "run" "--project" "." "materialize-mcp-server"
+
+# For Materialize Cloud
+claude mcp add materialize-cloud --command "uv" --args "run" "--project" "." "materialize-mcp-server" --env MZ_DSN="your-materialize-cloud-dsn"
+```
+
+#### Manual Configuration
+
+Alternatively, create a `.mcp.json` file in your project root:
+
+```json
+{
+  "mcpServers": {
+    "materialize-local": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/materialize-mcp-server", "materialize-mcp-server"],
+      "env": {
+        "MZ_DSN": "postgresql://materialize@localhost:6875/materialize"
+      }
+    },
+    "materialize-cloud": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/materialize-mcp-server", "materialize-mcp-server"],
+      "env": {
+        "MZ_DSN": "postgresql://user@host.materialize.cloud:6875/materialize?sslmode=require"
+      }
+    }
+  }
+}
+```
+
+#### Configuration Options
+
+You can pass any of these environment variables in the `env` section:
+
+- `MZ_DSN`: Full Materialize connection string (overrides individual connection parameters)
+- `PGHOST`: Materialize host (default: localhost)
+- `PGPORT`: Materialize port (default: 6875)
+- `PGUSER`: Database user (default: materialize)
+- `PGPASSWORD`: Database password (if required)
+- `PGDATABASE`: Database name (default: materialize)
+- `MCP_LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
+
+### Manual Installation (for development)
+
+If you want to run the server manually for development:
 
 ```bash
 git clone https://github.com/MaterializeInc/materialize-mcp-server
 cd materialize-mcp-server
+uv sync
 uv run materialize-mcp-server
 ```
 
@@ -30,8 +91,9 @@ The server provides the following tools:
 ### SQL Execution
 - **run_sql_transaction**: Execute one or more SQL statements within a single transaction on a specified cluster
 
-### Performance Monitoring
-- **list_slow_queries**: List slow queries from recent activity log with execution time above the given threshold
+### Data Freshness Monitoring
+- **monitor_data_freshness**: Monitor data freshness with dependency-aware analysis. Shows lagging objects, their dependency chains, and critical paths that introduce delay to help identify root causes of freshness issues
+- **get_object_freshness_diagnostics**: Get detailed freshness diagnostics for a specific object, showing its freshness and the complete dependency chain with freshness information for each dependency
 
 ### PostgreSQL Integration
 - **create_postgres_connection**: Create a PostgreSQL connection in Materialize with specified host, database, credentials, and SSL settings
@@ -40,6 +102,7 @@ The server provides the following tools:
 ### View Management
 - **create_view**: Create a view with the specified name and SQL query
 - **create_materialized_view**: Create a materialized view with the specified name, cluster, and SQL query
+- **list_materialized_views**: List materialized views in Materialize, optionally filtered by schema and/or cluster
 
 ### Index Management
 - **list_indexes**: List indexes in Materialize, optionally filtered by schema and/or cluster
@@ -162,16 +225,67 @@ uv run materialize-mcp
 }
 ```
 
-### Monitor Slow Queries
+### Monitor Data Freshness
 
 ```json
 {
-  "name": "list_slow_queries",
+  "name": "monitor_data_freshness",
   "arguments": {
-    "threshold_ms": 1000
+    "threshold_seconds": 3.0,
+    "cluster": "my_cluster"
   }
 }
 ```
+
+### Get Object Freshness Diagnostics
+
+```json
+{
+  "name": "get_object_freshness_diagnostics",
+  "arguments": {
+    "object_name": "my_materialized_view",
+    "schema": "public"
+  }
+}
+```
+
+## Using with Claude Code
+
+Once configured, Claude Code will automatically start the Materialize MCP server when you open your project. The tools will be available for Claude to use when helping you with Materialize-related tasks.
+
+### Example Interactions
+
+```
+You: "Show me all the clusters in my Materialize instance"
+Claude: I'll list all the clusters in your Materialize instance.
+[Claude automatically uses the list_clusters tool]
+
+You: "Create a new cluster called analytics with size 100cc"
+Claude: I'll create a new cluster called 'analytics' with size 100cc.
+[Claude automatically uses the create_cluster tool]
+
+You: "What materialized views are lagging by more than 5 seconds?"
+Claude: I'll check for materialized views with freshness lag greater than 5 seconds.
+[Claude automatically uses the monitor_data_freshness tool]
+```
+
+### Common Workflows
+
+1. **Setting up a real-time data pipeline**:
+   - Create a PostgreSQL connection
+   - Create a source from the connection
+   - Create materialized views on the source
+   - Create indexes for query performance
+
+2. **Monitoring data freshness**:
+   - Use `monitor_data_freshness` to find lagging objects
+   - Use `get_object_freshness_diagnostics` to analyze specific objects
+   - Identify bottlenecks in your data pipeline
+
+3. **Multi-cluster architecture**:
+   - Create separate clusters for different workloads
+   - Place transformation views on compute clusters
+   - Place serving views on dedicated query clusters
 
 ## Use Cases
 
