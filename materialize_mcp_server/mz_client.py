@@ -17,27 +17,25 @@ from .validation import validate_and_sanitize_args, ValidationError
 OBJECTS_QUERY = sql.SQL(
     """
     SELECT 
-        op.database,
-        op.schema,
-        op.name AS object_name,
-        op.object_type,
+        d.name AS database,
+        s.name AS schema,
+        o.name AS object_name,
+        o.type AS object_type,
         cts.comment AS description,
         CASE 
-            WHEN op.object_type = 'source' THEN 'source'
-            WHEN op.object_type = 'table' THEN 'table'
-            WHEN op.object_type = 'view' THEN 'view'
-            WHEN op.object_type = 'materialized-view' THEN 'materialized_view'
-            WHEN op.object_type = 'index' THEN 'indexed_view'
-            ELSE op.object_type
+            WHEN o.type = 'source' THEN 'source'
+            WHEN o.type = 'table' THEN 'table'
+            WHEN o.type = 'view' THEN 'view'
+            WHEN o.type = 'materialized-view' THEN 'materialized_view'
+            WHEN o.type = 'index' THEN 'indexed_view'
+            ELSE o.type
         END AS object_category
-    FROM mz_internal.mz_show_my_object_privileges op
-    JOIN mz_objects o ON op.name = o.name AND op.object_type = o.type
-    JOIN mz_schemas s ON s.name = op.schema AND s.id = o.schema_id
-    JOIN mz_databases d ON d.name = op.database AND d.id = s.database_id
+    FROM mz_objects o
+    JOIN mz_schemas s ON s.id = o.schema_id
+    JOIN mz_databases d ON d.id = s.database_id
     LEFT JOIN mz_internal.mz_comments cts ON cts.id = o.id AND cts.object_sub_id IS NULL
-    WHERE op.privilege_type = 'SELECT'
-      AND op.object_type IN ('source', 'table', 'view', 'materialized-view', 'index')
-    ORDER BY op.database, op.schema, op.object_type, op.name
+    WHERE o.type IN ('source', 'table', 'view', 'materialized-view', 'index')
+    ORDER BY d.name, s.name, o.type, o.name
     """
 )
 
