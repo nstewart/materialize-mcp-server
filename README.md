@@ -305,3 +305,115 @@ The server supports a multi-cluster architecture where you can:
 - Maintain indexes on different clusters for performance isolation
 - Monitor and optimize query performance across clusters
 
+## Creating Agent-Accessible Data Products with RBAC
+
+Materialize supports Role-Based Access Control (RBAC) that enables you to create secure data products accessible to AI agents and automated systems. This approach allows you to expose specific datasets while maintaining security and isolation.
+
+### Overview
+
+The general pattern is:
+1. Create indexed views that contain the specific data you want to expose
+2. Create roles for different agent access levels
+3. Grant appropriate privileges to these roles
+4. Configure agents to connect using role-specific credentials
+
+### Implementation Steps
+
+#### 1. Create Agent-Specific Roles
+
+```sql
+-- Create a role for agent access
+CREATE ROLE agent_readonly;
+
+-- Create more specific roles as needed
+CREATE ROLE agent_analytics;
+CREATE ROLE agent_reporting;
+```
+
+#### 2. Create Indexed Views as Data Products
+
+```sql
+-- Create a materialized view with safe, aggregated data
+CREATE MATERIALIZED VIEW agent_customer_metrics
+IN CLUSTER serve AS
+SELECT 
+    date_trunc('day', created_at) as date,
+    COUNT(DISTINCT customer_id) as daily_active_customers,
+    SUM(order_total) as daily_revenue,
+    AVG(order_total) as avg_order_value
+FROM orders
+GROUP BY date_trunc('day', created_at);
+
+-- Create an index for fast access
+CREATE INDEX idx_agent_customer_metrics 
+ON agent_customer_metrics (date)
+IN CLUSTER serve;
+```
+
+#### 3. Grant Privileges to Agent Roles
+
+```sql
+-- Grant USAGE on the database and schema
+GRANT USAGE ON DATABASE materialize TO agent_readonly;
+GRANT USAGE ON SCHEMA public TO agent_readonly;
+
+-- Grant SELECT on specific views
+GRANT SELECT ON agent_customer_metrics TO agent_readonly;
+GRANT SELECT ON agent_product_analytics TO agent_readonly;
+
+-- For more advanced agents, grant additional privileges
+GRANT CREATE ON SCHEMA analytics TO agent_analytics;
+```
+
+#### 4. Configure MCP Server for Agent Access
+
+When configuring the MCP server for agent access, use connection strings with appropriate role credentials:
+
+```json
+{
+  "mcpServers": {
+    "materialize-agent": {
+      "command": "uv",
+      "args": ["run", "--project", ".", "materialize-mcp-server"],
+      "env": {
+        "MZ_DSN": "postgresql://agent_readonly:password@host.materialize.cloud:6875/materialize?sslmode=require"
+      }
+    }
+  }
+}
+```
+
+### Best Practices
+
+1. **Principle of Least Privilege**: Only grant SELECT access to specific views that agents need
+2. **Use Materialized Views**: Pre-compute and aggregate data to reduce computational load
+3. **Index Everything**: Create indexes on all agent-accessible views for optimal performance
+4. **Separate Clusters**: Use dedicated clusters for agent workloads to isolate from production queries
+5. **Monitor Usage**: Track agent query patterns and performance using Materialize's system tables
+
+### Example: Multi-Tier Agent Architecture
+
+```sql
+-- Tier 1: Basic read-only agent
+CREATE ROLE agent_basic;
+GRANT SELECT ON public.agent_summary_views TO agent_basic;
+
+-- Tier 2: Analytics agent with broader access
+CREATE ROLE agent_analytics;
+GRANT SELECT ON analytics.* TO agent_analytics;
+GRANT USAGE ON CLUSTER analytics TO agent_analytics;
+
+-- Tier 3: Advanced agent with create privileges
+CREATE ROLE agent_advanced;
+GRANT CREATE VIEW ON SCHEMA workspace TO agent_advanced;
+GRANT ALL ON CLUSTER agent_compute TO agent_advanced;
+```
+
+### Security Considerations
+
+- Never grant agents access to raw source data or sensitive tables
+- Always use SSL connections (sslmode=require)
+- Rotate agent credentials regularly
+- Monitor agent access patterns for anomalies
+- Use row-level security where needed by creating filtered views
+
