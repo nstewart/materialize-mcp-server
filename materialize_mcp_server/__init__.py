@@ -27,8 +27,7 @@ Available Tools:
 14. ``create_materialized_view`` - Creates a materialized view with the specified name, cluster, and SQL query
 15. ``list_materialized_views`` - Lists materialized views in Materialize, optionally filtered by schema and/or cluster
 16. ``monitor_data_freshness`` - Monitors data freshness with dependency-aware analysis, showing lagging objects and their dependency chains to identify root causes
-17. ``monitor_source_lag`` - Monitors replication lag for streaming sources and their impact on downstream objects
-18. ``get_object_freshness_diagnostics`` - Get detailed freshness diagnostics for a specific object, showing its freshness and complete dependency chain
+17. ``get_object_freshness_diagnostics`` - Get detailed freshness diagnostics for a specific object, showing its freshness and complete dependency chain
 """
 
 import asyncio
@@ -496,26 +495,6 @@ async def run():
             }
         )
         tools.append(monitor_data_freshness_tool)
-        # Add the monitor_source_lag tool
-        monitor_source_lag_tool = Tool(
-            name="monitor_source_lag",
-            description="Monitor replication lag for PostgreSQL sources and other streaming sources, including their impact on downstream indexes and materialized views.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "source_name": {
-                        "type": "string",
-                        "description": "Optional source name to filter results"
-                    },
-                    "cluster": {
-                        "type": "string",
-                        "description": "Optional cluster name to filter results"
-                    }
-                },
-                "required": []
-            }
-        )
-        tools.append(monitor_source_lag_tool)
         # Add the get_object_freshness_diagnostics tool
         get_object_freshness_diagnostics_tool = Tool(
             name="get_object_freshness_diagnostics",
@@ -749,17 +728,6 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing monitor_data_freshness: {str(e)}")
-                raise
-        if name == "monitor_source_lag":
-            try:
-                source_name = arguments.get("source_name")
-                cluster = arguments.get("cluster")
-                result = await server.request_context.lifespan_context.monitor_source_lag(source_name, cluster)
-                result_text = json.dumps(result, default=json_serial, indent=2)
-                logger.debug(f"monitor_source_lag executed successfully, found {len(result)} sources")
-                return [TextContent(text=result_text, type="text")]
-            except Exception as e:
-                logger.error(f"Error executing monitor_source_lag: {str(e)}")
                 raise
         if name == "get_object_freshness_diagnostics":
             try:
