@@ -27,6 +27,8 @@ Available Tools:
 13. ``create_postgres_source`` - Creates a PostgreSQL source using an existing connection and publication
 14. ``create_materialized_view`` - Creates a materialized view with the specified name, cluster, and SQL query
 15. ``list_materialized_views`` - Lists materialized views in Materialize, optionally filtered by schema and/or cluster
+16. ``monitor_data_freshness`` - Monitors data freshness with dependency-aware analysis, showing lagging objects and their dependency chains to identify root causes
+17. ``monitor_source_lag`` - Monitors replication lag for streaming sources and their impact on downstream objects
 """
 
 import asyncio
@@ -453,6 +455,50 @@ async def run():
             }
         )
         tools.append(list_materialized_views_tool)
+        # Add the monitor_data_freshness tool
+        monitor_data_freshness_tool = Tool(
+            name="monitor_data_freshness",
+            description="Monitor data freshness with dependency-aware analysis. Shows lagging objects, their dependency chains, and critical paths that introduce delay to help identify root causes of freshness issues.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "threshold_seconds": {
+                        "type": "number",
+                        "description": "Freshness threshold in seconds (supports fractional values, default: 3.0)"
+                    },
+                    "schema": {
+                        "type": "string",
+                        "description": "Optional schema name to filter objects"
+                    },
+                    "cluster": {
+                        "type": "string",
+                        "description": "Optional cluster name to filter objects"
+                    }
+                },
+                "required": []
+            }
+        )
+        tools.append(monitor_data_freshness_tool)
+        # Add the monitor_source_lag tool
+        monitor_source_lag_tool = Tool(
+            name="monitor_source_lag",
+            description="Monitor replication lag for PostgreSQL sources and other streaming sources, including their impact on downstream indexes and materialized views.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_name": {
+                        "type": "string",
+                        "description": "Optional source name to filter results"
+                    },
+                    "cluster": {
+                        "type": "string",
+                        "description": "Optional cluster name to filter results"
+                    }
+                },
+                "required": []
+            }
+        )
+        tools.append(monitor_source_lag_tool)
         return tools
 
     @server.call_tool()
@@ -666,6 +712,29 @@ async def run():
                 return [TextContent(text=result_text, type="text")]
             except Exception as e:
                 logger.error(f"Error executing list_materialized_views: {str(e)}")
+                raise
+        if name == "monitor_data_freshness":
+            try:
+                threshold_seconds = arguments.get("threshold_seconds", 3.0)
+                schema = arguments.get("schema")
+                cluster = arguments.get("cluster")
+                result = await server.request_context.lifespan_context.monitor_data_freshness(threshold_seconds, schema, cluster)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"monitor_data_freshness executed successfully, found {len(result)} objects")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing monitor_data_freshness: {str(e)}")
+                raise
+        if name == "monitor_source_lag":
+            try:
+                source_name = arguments.get("source_name")
+                cluster = arguments.get("cluster")
+                result = await server.request_context.lifespan_context.monitor_source_lag(source_name, cluster)
+                result_text = json.dumps(result, default=json_serial, indent=2)
+                logger.debug(f"monitor_source_lag executed successfully, found {len(result)} sources")
+                return [TextContent(text=result_text, type="text")]
+            except Exception as e:
+                logger.error(f"Error executing monitor_source_lag: {str(e)}")
                 raise
         # If not a static tool, raise error
         logger.error(f"Tool not found: {name}")

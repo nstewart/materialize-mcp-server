@@ -572,6 +572,271 @@ class MzClient:
                     materialized_views.append(row)
         return materialized_views
 
+    async def monitor_data_freshness(self, threshold_seconds: float = 3.0, schema: str = None, cluster: str = None) -> dict:
+        """
+        Monitor data freshness with dependency-aware analysis. Shows lagging objects and their dependency chains
+        to help identify root causes of freshness issues.
+        
+        Args:
+            threshold_seconds: Freshness threshold in seconds (supports fractional values, default: 3.0)
+            schema: Optional schema name to filter objects
+            cluster: Optional cluster name to filter objects
+            
+        Returns:
+            Dictionary with three categories:
+            - lagging_objects: Objects that exceed the freshness threshold
+            - dependency_chains: Full dependency chains for each lagging object  
+            - critical_paths: Dependency edges that introduce delay, scored by lag amount
+        """
+        pool = self.pool
+        result = {
+            'lagging_objects': [],
+            'dependency_chains': [],
+            'critical_paths': []
+        }
+        
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                
+                # 1. Get basic lagging objects info
+                lagging_query = """
+                SELECT 
+                    f.object_id,
+                    o.name as object_name,
+                    s.name as schema_name,
+                    o.type as object_type,
+                    c.name as cluster_name,
+                    f.write_frontier,
+                    to_timestamp(f.write_frontier::text::numeric / 1000) as write_frontier_time,
+                    EXTRACT(EPOCH FROM (mz_now()::timestamp - to_timestamp(f.write_frontier::text::numeric / 1000))) as lag_seconds
+                FROM mz_internal.mz_frontiers f
+                JOIN mz_objects o ON f.object_id = o.id
+                JOIN mz_schemas s ON o.schema_id = s.id
+                LEFT JOIN mz_clusters c ON o.cluster_id = c.id
+                WHERE f.write_frontier > 0
+                  AND mz_now() > to_timestamp(f.write_frontier::text::numeric / 1000) + INTERVAL '1 second' * %s
+                  AND f.object_id LIKE 'u%%'
+                """
+                
+                params = [threshold_seconds]
+                if schema:
+                    lagging_query += " AND s.name = %s"
+                    params.append(schema)
+                if cluster:
+                    lagging_query += " AND c.name = %s"
+                    params.append(cluster)
+                    
+                lagging_query += " ORDER BY lag_seconds DESC"
+                
+                await cur.execute(lagging_query, params)
+                async for row in cur:
+                    lag_ms = row['lag_seconds'] * 1000 if row['lag_seconds'] else None
+                    result['lagging_objects'].append({
+                        'object_id': row['object_id'],
+                        'object_name': row['object_name'],
+                        'schema_name': row['schema_name'], 
+                        'object_type': row['object_type'],
+                        'cluster_name': row['cluster_name'],
+                        'write_frontier': row['write_frontier'],
+                        'write_frontier_time': row['write_frontier_time'],
+                        'lag_seconds': row['lag_seconds'],
+                        'lag_ms': lag_ms,
+                        'threshold_seconds': threshold_seconds
+                    })
+                
+                # 2. Get full dependency chains for lagging objects
+                dependency_query = """
+                WITH MUTUALLY RECURSIVE
+                input_of (source text, target text) AS (
+                    SELECT dependency_id, object_id 
+                    FROM mz_internal.mz_compute_dependencies
+                ),
+                probes (id text) AS (
+                    SELECT object_id
+                    FROM mz_internal.mz_frontiers
+                    WHERE write_frontier > 0
+                      AND mz_now() > to_timestamp(write_frontier::text::numeric / 1000) + INTERVAL '1 second' * %s
+                      AND object_id LIKE 'u%%'
+                ),
+                depends_on(probe text, prev text, next text) AS (
+                    SELECT id, id, id FROM probes
+                    UNION
+                    SELECT depends_on.probe, input_of.source, input_of.target
+                    FROM input_of, depends_on
+                    WHERE depends_on.prev = input_of.target
+                )
+                SELECT 
+                    depends_on.probe,
+                    depends_on.prev as dependency_id,
+                    depends_on.next as dependent_id,
+                    prev_obj.name as dependency_name,
+                    next_obj.name as dependent_name,
+                    prev_obj.type as dependency_type,
+                    next_obj.type as dependent_type
+                FROM depends_on
+                LEFT JOIN mz_objects prev_obj ON depends_on.prev = prev_obj.id
+                LEFT JOIN mz_objects next_obj ON depends_on.next = next_obj.id
+                WHERE probe != next
+                ORDER BY probe, prev, next
+                """
+                
+                await cur.execute(dependency_query, [threshold_seconds])
+                async for row in cur:
+                    result['dependency_chains'].append({
+                        'probe_id': row['probe'],
+                        'dependency_id': row['dependency_id'],
+                        'dependent_id': row['dependent_id'],
+                        'dependency_name': row['dependency_name'],
+                        'dependent_name': row['dependent_name'],
+                        'dependency_type': row['dependency_type'],
+                        'dependent_type': row['dependent_type']
+                    })
+                
+                # 3. Get critical path analysis with lag scoring
+                critical_path_query = """
+                WITH MUTUALLY RECURSIVE
+                input_of (source text, target text) AS (
+                    SELECT dependency_id, object_id 
+                    FROM mz_internal.mz_compute_dependencies
+                ),
+                probes (id text) AS (
+                    SELECT object_id
+                    FROM mz_internal.mz_frontiers
+                    WHERE write_frontier > 0
+                      AND mz_now() > to_timestamp(write_frontier::text::numeric / 1000) + INTERVAL '1 second' * %s
+                      AND object_id LIKE 'u%%'
+                ),
+                depends_on(probe text, prev text, next text) AS (
+                    SELECT id, id, id FROM probes
+                    UNION
+                    SELECT depends_on.probe, input_of.source, input_of.target
+                    FROM input_of, depends_on
+                    WHERE depends_on.prev = input_of.target
+                )
+                SELECT 
+                    depends_on.probe,
+                    depends_on.prev as source_id,
+                    depends_on.next as target_id,
+                    prev_obj.name as source_name,
+                    next_obj.name as target_name,
+                    prev_obj.type as source_type,
+                    next_obj.type as target_type,
+                    fp.write_frontier::text::numeric - fn.write_frontier::text::numeric as lag_ms,
+                    (fp.write_frontier::text::numeric - fn.write_frontier::text::numeric) / 1000.0 as lag_seconds
+                FROM depends_on, 
+                     mz_internal.mz_frontiers fn, 
+                     mz_internal.mz_frontiers fp
+                LEFT JOIN mz_objects prev_obj ON depends_on.prev = prev_obj.id
+                LEFT JOIN mz_objects next_obj ON depends_on.next = next_obj.id
+                WHERE probe != prev
+                  AND depends_on.next = fn.object_id
+                  AND depends_on.prev = fp.object_id  
+                  AND fp.write_frontier > fn.write_frontier
+                ORDER BY lag_ms DESC
+                """
+                
+                await cur.execute(critical_path_query, [threshold_seconds])
+                async for row in cur:
+                    result['critical_paths'].append({
+                        'probe_id': row['probe'],
+                        'source_id': row['source_id'],
+                        'target_id': row['target_id'],
+                        'source_name': row['source_name'],
+                        'target_name': row['target_name'],
+                        'source_type': row['source_type'],
+                        'target_type': row['target_type'],
+                        'lag_ms': row['lag_ms'],
+                        'lag_seconds': row['lag_seconds']
+                    })
+                    
+        return result
+
+    async def monitor_source_lag(self, source_name: str = None, cluster: str = None) -> list[dict]:
+        """
+        Monitor replication lag for PostgreSQL sources and other streaming sources.
+        
+        Args:
+            source_name: Optional source name to filter results
+            cluster: Optional cluster name to filter results
+            
+        Returns:
+            List of sources with their lag information including downstream index impacts
+        """
+        pool = self.pool
+        lag_data = []
+        async with pool.connection() as conn:
+            await conn.set_autocommit(True)
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Query for source lag information with downstream impacts
+                lag_query = """
+                SELECT 
+                    s.name as schema_name,
+                    src.name as source_name,
+                    src.type as source_type,
+                    c.name as cluster_name,
+                    src.created_at,
+                    -- Get lag information from source statistics
+                    COALESCE(
+                        EXTRACT(EPOCH FROM (now() - lag.last_received_at)) * 1000,
+                        0
+                    ) as lag_ms,
+                    lag.last_received_at,
+                    lag.messages_received,
+                    lag.bytes_received,
+                    CASE 
+                        WHEN lag.last_received_at IS NULL THEN 'no_data'
+                        WHEN EXTRACT(EPOCH FROM (now() - lag.last_received_at)) < 30 THEN 'healthy'
+                        WHEN EXTRACT(EPOCH FROM (now() - lag.last_received_at)) < 300 THEN 'lagging'
+                        ELSE 'stalled'
+                    END as lag_status,
+                    -- Count dependent objects that might be affected by lag
+                    deps.dependent_views,
+                    deps.dependent_indexes
+                FROM mz_sources src
+                JOIN mz_schemas s ON src.schema_id = s.id
+                LEFT JOIN mz_clusters c ON src.cluster_id = c.id
+                LEFT JOIN (
+                    SELECT 
+                        source_id,
+                        MAX(occurred_at) as last_received_at,
+                        SUM(messages_received) as messages_received,
+                        SUM(bytes_received) as bytes_received
+                    FROM mz_internal.mz_source_statistics
+                    GROUP BY source_id
+                ) lag ON src.id = lag.source_id
+                LEFT JOIN (
+                    -- Count dependent materialized views and indexes
+                    SELECT 
+                        src_ref.id as source_id,
+                        COUNT(DISTINCT mv.id) as dependent_views,
+                        COUNT(DISTINCT idx.id) as dependent_indexes
+                    FROM mz_sources src_ref
+                    LEFT JOIN mz_internal.mz_object_dependencies dep_mv ON src_ref.id = dep_mv.referenced_object_id
+                    LEFT JOIN mz_materialized_views mv ON dep_mv.object_id = mv.id
+                    LEFT JOIN mz_internal.mz_object_dependencies dep_idx ON src_ref.id = dep_idx.referenced_object_id
+                    LEFT JOIN mz_indexes idx ON dep_idx.object_id = idx.id
+                    GROUP BY src_ref.id
+                ) deps ON src.id = deps.source_id
+                WHERE src.type IN ('postgres', 'kafka', 'mysql', 'webhook')
+                """
+                
+                params = []
+                if source_name:
+                    lag_query += " AND src.name = %s"
+                    params.append(source_name)
+                if cluster:
+                    lag_query += " AND c.name = %s"
+                    params.append(cluster)
+                    
+                lag_query += " ORDER BY lag_ms DESC"
+                
+                await cur.execute(lag_query, params)
+                async for row in cur:
+                    lag_data.append(row)
+                    
+        return lag_data
+
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
