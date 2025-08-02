@@ -51,7 +51,7 @@ uv run materialize-mcp --help  # Verify it works
 4. (Optional) Test the release on TestPyPI:
 ```bash
 uv run twine upload --repository testpypi dist/*
-uv pip install --index-url https://test.pypi.org/simple/ materialize-mcp-server
+uv pip install --index-url https://test.pypi.org/simple/ materialize-mcp
 ```
 
 5. Create a git tag for the release:
@@ -66,7 +66,7 @@ uv run twine upload dist/*
 ```
 
 7. Verify the release on PyPI:
-- Visit https://pypi.org/project/materialize-mcp-server/
+- Visit https://pypi.org/project/materialize-mcp/
 - Check that the new version is listed
 - Verify the package description and metadata
 

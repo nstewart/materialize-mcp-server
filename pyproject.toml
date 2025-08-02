@@ -1,5 +1,5 @@
 [project]
-name = "materialize-mcp-server"
+name = "materialize-mcp"
 version = "0.1.0"
 description = "A server that exposes Materialize indexes as tools over the Model Context Protocol (MCP)"
 readme = "README.md"
@@ -28,13 +28,13 @@ dependencies = [
 ]
 
 [project.scripts]
-materialize-mcp-server = "materialize_mcp_server:main"
+materialize-mcp = "materialize_mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/MaterializeInc/materialize-mcp-server"
-Documentation = "https://github.com/MaterializeInc/materialize-mcp-server#readme"
-Repository = "https://github.com/MaterializeInc/materialize-mcp-server.git"
-Issues = "https://github.com/MaterializeInc/materialize-mcp-server/issues"
+Homepage = "https://github.com/MaterializeInc/materialize-mcp"
+Documentation = "https://github.com/MaterializeInc/materialize-mcp#readme"
+Repository = "https://github.com/MaterializeInc/materialize-mcp.git"
+Issues = "https://github.com/MaterializeInc/materialize-mcp/issues"
 
 [build-system]
 requires = ["hatchling"]

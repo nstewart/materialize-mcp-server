@@ -5,8 +5,8 @@
       "args": [
         "run",
         "--project",
-        "/Users/<name>/Projects/materialize-mcp-server",
-        "materialize-mcp-server"
+        "/Users/<name>/Projects/materialize-mcp",
+        "materialize-mcp"
       ],
       "env": {
         "PGHOST": "127.0.0.1",

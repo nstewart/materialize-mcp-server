@@ -13,7 +13,7 @@ def test_config_validation():
     
     # Test invalid port
     result = subprocess.run([
-        "uv", "run", "materialize-mcp-server",
+        "uv", "run", "materialize-mcp",
         "--port", "99999"
     ], capture_output=True, text=True)
     assert result.returncode != 0, "Should fail with invalid port"
@@ -21,7 +21,7 @@ def test_config_validation():
     
     # Test invalid DSN
     result = subprocess.run([
-        "uv", "run", "materialize-mcp-server",
+        "uv", "run", "materialize-mcp",
         "--mz-dsn", "invalid-dsn"
     ], capture_output=True, text=True)
     assert result.returncode != 0, "Should fail with invalid DSN"
@@ -34,7 +34,7 @@ def test_help_output():
     print("Testing enhanced help output...")
     
     result = subprocess.run([
-        "uv", "run", "materialize-mcp-server", "--help"
+        "uv", "run", "materialize-mcp", "--help"
     ], capture_output=True, text=True)
     assert result.returncode == 0, "Help should succeed"
     

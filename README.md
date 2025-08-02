@@ -14,17 +14,17 @@ Claude Code automatically starts and manages MCP servers for you. You don't need
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/MaterializeInc/materialize-mcp-server
-cd materialize-mcp-server
+git clone https://github.com/MaterializeInc/materialize-mcp
+cd materialize-mcp
 ```
 
 2. Add the server configuration using Claude Code's CLI:
 ```bash
 # For local Materialize instance
-claude mcp add materialize-local --command "uv" --args "run" "--project" "." "materialize-mcp-server"
+claude mcp add materialize-local --command "uv" --args "run" "--project" "." "materialize-mcp"
 
 # For Materialize Cloud
-claude mcp add materialize-cloud --command "uv" --args "run" "--project" "." "materialize-mcp-server" --env MZ_DSN="your-materialize-cloud-dsn"
+claude mcp add materialize-cloud --command "uv" --args "run" "--project" "." "materialize-mcp" --env MZ_DSN="your-materialize-cloud-dsn"
 ```
 
 #### Manual Configuration
@@ -36,14 +36,14 @@ Alternatively, create a `.mcp.json` file in your project root:
   "mcpServers": {
     "materialize-local": {
       "command": "uv",
-      "args": ["run", "--project", "/path/to/materialize-mcp-server", "materialize-mcp-server"],
+      "args": ["run", "--project", "/path/to/materialize-mcp", "materialize-mcp"],
       "env": {
         "MZ_DSN": "postgresql://materialize@localhost:6875/materialize"
       }
     },
     "materialize-cloud": {
       "command": "uv",
-      "args": ["run", "--project", "/path/to/materialize-mcp-server", "materialize-mcp-server"],
+      "args": ["run", "--project", "/path/to/materialize-mcp", "materialize-mcp"],
       "env": {
         "MZ_DSN": "postgresql://user@host.materialize.cloud:6875/materialize?sslmode=require"
       }
@@ -69,10 +69,10 @@ You can pass any of these environment variables in the `env` section:
 If you want to run the server manually for development:
 
 ```bash
-git clone https://github.com/MaterializeInc/materialize-mcp-server
-cd materialize-mcp-server
+git clone https://github.com/MaterializeInc/materialize-mcp
+cd materialize-mcp
 uv sync
-uv run materialize-mcp-server
+uv run materialize-mcp
 ```
 
 ## Available Tools
@@ -374,7 +374,7 @@ When configuring the MCP server for agent access, use connection strings with ap
   "mcpServers": {
     "materialize-agent": {
       "command": "uv",
-      "args": ["run", "--project", ".", "materialize-mcp-server"],
+      "args": ["run", "--project", ".", "materialize-mcp"],
       "env": {
         "MZ_DSN": "postgresql://agent_readonly:password@host.materialize.cloud:6875/materialize?sslmode=require"
       }
